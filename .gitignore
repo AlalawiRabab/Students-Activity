@@ -1,0 +1,33 @@
+# Dependencies / OS
+node_modules/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Env / secrets (never commit service_role or DB passwords)
+.env
+.env.*
+!.env.example
+*.pem
+secrets/
+service_role*
+
+# Backups / personal data dumps
+*.backup.json
+*-backup-*.json
+backups/
+dump.sql
+*.dump
+
+# Logs
+*.log
+npm-debug.log*
+
+# Local overrides (optional private config)
+js/config.local.js

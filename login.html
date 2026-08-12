@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' blob: data: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net; frame-src 'self' blob: https://*.supabase.co;">
+  <title>تسجيل الدخول | منصة النشاط الطلابي</title>
+  <link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+  <div class="login-page">
+    <button type="button" class="icon-btn" id="theme-btn" aria-label="تبديل الوضع الليلي" style="position:fixed;top:1rem;left:1rem">◐</button>
+    <div class="login-card">
+      <img
+        class="brand-logo brand-logo--login"
+        src="./assets/images/school-logo.png"
+        alt="شعار المدرسة"
+        width="120"
+        height="120"
+      >
+      <h1 id="platform-title">منصة النشاط الطلابي</h1>
+      <p class="sub" id="leader-line">رائدة النشاط / إيمان الرحيلي</p>
+      <div id="login-alert" class="alert alert--error" role="alert"></div>
+      <form id="login-form" novalidate>
+        <label class="field">
+          <span class="field__label">البريد الإلكتروني</span>
+          <input class="input" id="email" name="email" type="email" autocomplete="username" required aria-required="true">
+        </label>
+        <label class="field" style="margin-top:0.8rem">
+          <span class="field__label">كلمة المرور</span>
+          <div class="password-wrap">
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" required aria-required="true" style="padding-left:4.5rem">
+            <button type="button" class="toggle-pass" id="toggle-pass" aria-label="إظهار كلمة المرور">إظهار</button>
+          </div>
+        </label>
+        <button type="submit" class="btn btn--primary" id="login-btn" style="width:100%;margin-top:1.1rem">تسجيل الدخول</button>
+      </form>
+    </div>
+  </div>
+  <script type="module" src="./js/login.js"></script>
+</body>
+</html>
