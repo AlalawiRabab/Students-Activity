@@ -1,7 +1,7 @@
 /**
  * auth.js — المصادقة وحماية الصفحات
  */
-import { isConfigReady } from './config.js';
+import { isConfigReady, SUPABASE_URL, SUPABASE_ANON_KEY, USERNAME_LOGIN_FUNCTION } from './config.js';
 import { getSupabase } from './supabase-client.js';
 import { logDev } from './utils.js';
 import { validatePassword } from './validators.js';
@@ -48,7 +48,7 @@ export async function fetchProfile(force = false) {
   if (!user) return null;
   const { data, error } = await sb
     .from('profiles')
-    .select('id, full_name, role, is_active')
+    .select('id, full_name, role, is_active, username')
     .eq('id', user.id)
     .maybeSingle();
   if (error) throw error;
@@ -136,6 +136,63 @@ export async function login(email, password) {
   return data;
 }
 
+/**
+ * تسجيل الدخول باسم المستخدم عبر Edge Function
+ * (لا يُرجع البريد للمتصفح ولا يقرأ profiles كـ anon)
+ */
+export async function loginWithUsername(username, password) {
+  const sb = getSupabase();
+  const endpoint = `${SUPABASE_URL}/functions/v1/${USERNAME_LOGIN_FUNCTION}`;
+
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        username: String(username).trim(),
+        password,
+      }),
+    });
+  } catch (err) {
+    logDev(err);
+    throw new Error('تعذّر الاتصال بخدمة تسجيل الدخول');
+  }
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (err) {
+    logDev(err);
+    throw new Error('استجابة غير صالحة من خدمة تسجيل الدخول');
+  }
+
+  if (!response.ok) {
+    const msg = payload?.message || payload?.error || 'invalid_credentials';
+    const error = new Error(String(msg));
+    error.status = response.status;
+    error.code = payload?.error || 'invalid_credentials';
+    throw error;
+  }
+
+  if (!payload?.access_token || !payload?.refresh_token) {
+    throw new Error('incomplete_session');
+  }
+
+  const { data, error } = await sb.auth.setSession({
+    access_token: payload.access_token,
+    refresh_token: payload.refresh_token,
+  });
+  if (error) throw error;
+
+  clearAuthCache();
+  return data;
+}
+
 export async function logout() {
   const sb = getSupabase();
   clearAuthCache();
@@ -153,12 +210,24 @@ export async function changePassword(newPassword) {
 
 export function authErrorMessage(err) {
   const m = String(err?.message || err || '').toLowerCase();
-  if (m.includes('invalid login') || m.includes('invalid credentials')) {
-    return 'البريد الإلكتروني أو كلمة المرور غير صحيحة';
+  const code = String(err?.code || '').toLowerCase();
+  if (
+    code === 'invalid_credentials' ||
+    m.includes('invalid_credentials') ||
+    m.includes('invalid login') ||
+    m.includes('invalid credentials') ||
+    m.includes('اسم المستخدم أو كلمة المرور')
+  ) {
+    return 'اسم المستخدم أو كلمة المرور غير صحيحة';
   }
   if (m.includes('email not confirmed')) return 'لم يتم تأكيد البريد الإلكتروني بعد';
   if (m.includes('rate limit')) return 'محاولات كثيرة، حاول لاحقاً';
-  if (m.includes('network')) return 'تعذّر الاتصال بالخادم';
+  if (m.includes('network') || m.includes('تعذّر الاتصال')) {
+    return 'تعذّر الاتصال بالخادم';
+  }
+  if (m.includes('incomplete_session') || m.includes('server_misconfigured')) {
+    return 'تعذّر إكمال تسجيل الدخول، حاول لاحقاً';
+  }
   return 'تعذّر تسجيل الدخول، تحقق من البيانات والاتصال';
 }
 

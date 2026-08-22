@@ -21,6 +21,7 @@ export const ALLOWED_DOCUMENT_TYPES = Object.freeze([
 ]);
 export const SIGNED_URL_EXPIRES_IN = 120;
 export const PAGE_SIZE = 20;
+export const USERNAME_LOGIN_FUNCTION = 'auth-username-login';
 export function isConfigReady() {
   return (
     !SUPABASE_URL.includes('YOUR_PROJECT') &&
