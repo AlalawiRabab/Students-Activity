@@ -1,22 +1,22 @@
 /**
- * login.js
+ * login.js — تسجيل الدخول باسم المستخدم + كلمة المرور
  */
 import { isConfigReady } from './config.js';
 import {
   redirectIfLoggedIn,
-  login,
+  loginWithUsername,
   authErrorMessage,
   showConfigWarning,
 } from './auth.js';
 import { initTheme, toggleTheme, setButtonLoading } from './ui.js';
-import { validateEmail, validateRequired } from './validators.js';
+import { validateUsername, validateRequired } from './validators.js';
 import { fetchSettings } from './supabase-service.js';
 import { logDev } from './utils.js';
 
 initTheme();
 
 const form = document.getElementById('login-form');
-const emailInput = document.getElementById('email');
+const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const togglePass = document.getElementById('toggle-pass');
 const submitBtn = document.getElementById('login-btn');
@@ -31,7 +31,10 @@ togglePass?.addEventListener('click', () => {
   const isPass = passwordInput.type === 'password';
   passwordInput.type = isPass ? 'text' : 'password';
   togglePass.textContent = isPass ? 'إخفاء' : 'إظهار';
-  togglePass.setAttribute('aria-label', isPass ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور');
+  togglePass.setAttribute(
+    'aria-label',
+    isPass ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'
+  );
 });
 
 function showAlert(msg) {
@@ -65,15 +68,15 @@ async function boot() {
 form?.addEventListener('submit', async (e) => {
   e.preventDefault();
   hideAlert();
-  const emailErr = validateEmail(emailInput.value);
+  const userErr = validateUsername(usernameInput.value);
   const passErr = validateRequired(passwordInput.value, 'كلمة المرور');
-  if (emailErr || passErr) {
-    showAlert(emailErr || passErr);
+  if (userErr || passErr) {
+    showAlert(userErr || passErr);
     return;
   }
   setButtonLoading(submitBtn, true, 'جارٍ تسجيل الدخول...');
   try {
-    await login(emailInput.value, passwordInput.value);
+    await loginWithUsername(usernameInput.value, passwordInput.value);
     window.location.replace('./dashboard.html');
   } catch (err) {
     logDev(err);

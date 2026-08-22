@@ -47,6 +47,19 @@ export function validateEmail(email) {
   return null;
 }
 
+/** اسم مستخدم لتسجيل الدخول: 3–32 حرفاً، أحرف إنجليزية/أرقام/_ . - */
+export function validateUsername(username) {
+  const u = String(username || '').trim();
+  if (!u) return 'اسم المستخدم مطلوب';
+  if (u.length < 3 || u.length > 32) {
+    return 'اسم المستخدم يجب أن يكون بين 3 و 32 حرفاً';
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(u)) {
+    return 'اسم المستخدم يقبل أحرفاً إنجليزية وأرقاماً و . _ - فقط';
+  }
+  return null;
+}
+
 /**
  * @param {File} file
  * @param {'image'|'document'} mode

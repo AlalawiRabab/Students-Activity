@@ -24,8 +24,20 @@
       <div id="login-alert" class="alert alert--error" role="alert"></div>
       <form id="login-form" novalidate>
         <label class="field">
-          <span class="field__label">البريد الإلكتروني</span>
-          <input class="input" id="email" name="email" type="email" autocomplete="username" required aria-required="true">
+          <span class="field__label">اسم المستخدم</span>
+          <input
+            class="input"
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            required
+            aria-required="true"
+            maxlength="32"
+            spellcheck="false"
+            autocapitalize="off"
+            autocorrect="off"
+          >
         </label>
         <label class="field" style="margin-top:0.8rem">
           <span class="field__label">كلمة المرور</span>

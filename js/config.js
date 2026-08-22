@@ -30,6 +30,9 @@ export const SIGNED_URL_EXPIRES_IN = 120; // ثانية
 
 export const PAGE_SIZE = 20;
 
+/** اسم Edge Function لتسجيل الدخول باسم المستخدم */
+export const USERNAME_LOGIN_FUNCTION = 'auth-username-login';
+
 export function isConfigReady() {
   return (
     typeof SUPABASE_URL === 'string' &&
