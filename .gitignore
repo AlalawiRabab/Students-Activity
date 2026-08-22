@@ -31,3 +31,6 @@ npm-debug.log*
 
 # Local overrides (optional private config)
 js/config.local.js
+
+# Supabase CLI temp files
+supabase/.temp/
