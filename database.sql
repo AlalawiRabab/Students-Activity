@@ -670,7 +670,14 @@ values (
   'student-activity-files',
   false,
   10485760,
-  array['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+  -- Word / Excel / GIF مطلوبة لأقسام migrations/002_activity_sections.sql
+  array[
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ]
 )
 on conflict (id) do update set
   public = excluded.public,

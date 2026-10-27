@@ -6,6 +6,8 @@ import {
   MAX_PDF_SIZE,
   ALLOWED_IMAGE_TYPES,
   ALLOWED_DOCUMENT_TYPES,
+  SECTION_FILE_MAX_SIZE,
+  SECTION_FILE_TYPES,
 } from './config.js';
 import { getFileExtension } from './utils.js';
 
@@ -98,6 +100,31 @@ export function validateFile(file, mode = 'document') {
   }
 
   return { ok: true, mime, ext, max };
+}
+
+/**
+ * ملفات أقسام رائدة النشاط: PDF / Word / Excel / صور
+ * @param {File} file
+ */
+export function validateSectionFile(file) {
+  if (!file) return { ok: false, error: 'لم يتم اختيار ملف' };
+  const ext = getFileExtension(file.name);
+  const spec = SECTION_FILE_TYPES[ext];
+  if (!spec) {
+    return {
+      ok: false,
+      error: `«${file.name}»: نوع غير مسموح. المسموح: PDF، Word، Excel، JPG، PNG، WEBP، GIF`,
+    };
+  }
+  if (file.type && !spec.accept.includes(file.type)) {
+    return { ok: false, error: `«${file.name}»: امتداد الملف لا يطابق نوعه الحقيقي` };
+  }
+  if (file.size <= 0) return { ok: false, error: `«${file.name}»: الملف فارغ` };
+  if (file.size > SECTION_FILE_MAX_SIZE) {
+    const mb = SECTION_FILE_MAX_SIZE / (1024 * 1024);
+    return { ok: false, error: `«${file.name}»: الحجم يتجاوز الحد المسموح (${mb} م.ب)` };
+  }
+  return { ok: true, ext, mime: spec.mime, kind: spec.kind };
 }
 
 export function sanitizeBackupDetails(obj) {

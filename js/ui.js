@@ -4,20 +4,10 @@
 import { createEl, clearElement, logDev } from './utils.js';
 import { canEdit, isAdmin, logout } from './auth.js';
 import { userMessageFromError } from './supabase-service.js';
+import { SECTIONS, LEGACY_PAGES } from './sections-config.js';
+import { icon } from './icons.js';
 
 const THEME_KEY = 'sap-theme';
-
-const NAV_ITEMS = [
-  { href: './dashboard.html', id: 'dashboard', label: 'الرئيسية' },
-  { href: './elementary-calendar.html', id: 'elementary', label: 'خطة الصفوف الأولية' },
-  { href: './upper-calendar.html', id: 'upper', label: 'خطة الصفوف العليا' },
-  { href: './programs.html', id: 'programs', label: 'البرامج والأنشطة' },
-  { href: './schedule.html', id: 'schedule', label: 'جدول حصص النشاط' },
-  { href: './competitions.html', id: 'competitions', label: 'المسابقات' },
-  { href: './honors.html', id: 'honors', label: 'التكريم' },
-  { href: './gallery.html', id: 'gallery', label: 'معرض النشاط' },
-  { href: './settings.html', id: 'settings', label: 'الإعدادات' },
-];
 
 export function applyTheme(theme) {
   const t = theme === 'dark' ? 'dark' : 'light';
@@ -108,7 +98,7 @@ export function confirmDialog({
     modal.append(h, p, actions);
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
-    okBtn.focus();
+    (danger ? cancelBtn : okBtn).focus();
   });
 }
 
@@ -214,20 +204,63 @@ export function renderPagination(container, { page, pageSize, total, onChange })
   container.append(prev, info, next);
 }
 
-function currentPageId() {
-  const file = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
-  const map = {
-    'dashboard.html': 'dashboard',
-    'elementary-calendar.html': 'elementary',
-    'upper-calendar.html': 'upper',
-    'programs.html': 'programs',
-    'schedule.html': 'schedule',
-    'competitions.html': 'competitions',
-    'honors.html': 'honors',
-    'gallery.html': 'gallery',
-    'settings.html': 'settings',
-  };
-  return map[file] || '';
+function currentPageFile() {
+  return (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
+}
+
+function navLink(href, label, iconName, activeFile, extra = null) {
+  const file = href.replace('./', '').toLowerCase();
+  const active = file === activeFile;
+  const a = createEl('a', {
+    href,
+    className: `nav-link${active ? ' is-active' : ''}`,
+    'aria-current': active ? 'page' : null,
+    title: label,
+  });
+  a.append(
+    createEl('span', { className: 'nav-link__icon' }, [icon(iconName, { size: 19 })]),
+    createEl('span', { className: 'nav-link__label', textContent: label })
+  );
+  if (extra) a.appendChild(extra);
+  return a;
+}
+
+function buildNav() {
+  const activeFile = currentPageFile();
+  const nav = createEl('nav', { className: 'sidebar__nav' });
+  nav.appendChild(navLink('./dashboard.html', 'لوحة التحكم', 'home', activeFile));
+
+  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'السجل الإلكتروني لرائدة النشاط' }));
+  SECTIONS.forEach((s, i) => {
+    nav.appendChild(
+      navLink(
+        `./${s.page}`,
+        s.title,
+        s.icon,
+        activeFile,
+        createEl('span', { className: 'nav-link__num', textContent: String(i + 1) })
+      )
+    );
+  });
+
+  const legacyActive = LEGACY_PAGES.some((p) => p.href.replace('./', '').toLowerCase() === activeFile);
+  const legacy = createEl('details', { className: 'nav-legacy', open: legacyActive || null });
+  legacy.appendChild(
+    createEl('summary', { className: 'nav-group__label nav-group__label--toggle' }, [
+      icon('archive', { size: 16 }),
+      createEl('span', { textContent: 'أقسام سابقة' }),
+    ])
+  );
+  LEGACY_PAGES.forEach((p) => legacy.appendChild(navLink(p.href, p.label, p.icon, activeFile)));
+  nav.appendChild(legacy);
+
+  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'عام' }));
+  nav.appendChild(navLink('./settings.html', 'الإعدادات', 'settings', activeFile));
+
+  nav.addEventListener('click', (e) => {
+    if (e.target.closest('a')) document.body.classList.remove('sidebar-open');
+  });
+  return nav;
 }
 
 export function mountShell({
@@ -266,23 +299,12 @@ export function mountShell({
     ])
   );
 
-  const nav = createEl('nav', { className: 'sidebar__nav' });
-  const activeId = currentPageId();
-  NAV_ITEMS.forEach((item) => {
-    const a = createEl('a', {
-      href: item.href,
-      className: `nav-link${item.id === activeId ? ' is-active' : ''}`,
-      'aria-current': item.id === activeId ? 'page' : null,
-    });
-    a.textContent = item.label;
-    nav.appendChild(a);
-  });
+  const nav = buildNav();
 
   const logoutBtn = createEl('button', {
     type: 'button',
     className: 'btn btn--ghost sidebar__logout',
-    textContent: 'تسجيل الخروج',
-  });
+  }, [icon('logout', { size: 18 }), createEl('span', { textContent: 'تسجيل الخروج' })]);
   logoutBtn.addEventListener('click', async () => {
     const ok = await confirmDialog({
       title: 'تسجيل الخروج',
@@ -302,10 +324,13 @@ export function mountShell({
     type: 'button',
     className: 'icon-btn menu-toggle',
     'aria-label': 'فتح القائمة',
-    textContent: '☰',
-  });
+    'aria-controls': 'sidebar',
+  }, [icon('menu', { size: 22 })]);
   menuBtn.addEventListener('click', () => {
     document.body.classList.toggle('sidebar-open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') document.body.classList.remove('sidebar-open');
   });
   const heading = createEl('div', { className: 'topbar__titles' }, [
     createEl('h1', { textContent: title || '' }),
@@ -323,8 +348,8 @@ export function mountShell({
     type: 'button',
     className: 'icon-btn',
     'aria-label': 'تبديل الوضع الليلي',
-    textContent: '◐',
-  });
+    title: 'الوضع الليلي',
+  }, [icon('moon', { size: 20 })]);
   themeBtn.addEventListener('click', toggleTheme);
   left.appendChild(themeBtn);
 

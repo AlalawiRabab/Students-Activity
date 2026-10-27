@@ -1,121 +1,133 @@
 /**
- * dashboard.js
+ * dashboard.js — لوحة التحكم: أقسام السجل الإلكتروني الـ 12 بالترتيب مع عدد الملفات
  */
 import { bootProtectedPage } from './app.js';
-import { countRows, listRows } from './supabase-service.js';
-import { createEl, clearElement, formatDate } from './utils.js';
-import { renderEmpty } from './ui.js';
+import { countRows } from './supabase-service.js';
+import { SECTIONS, LEGACY_PAGES } from './sections-config.js';
+import { fetchSectionFileCounts, isMissingSchemaError, renderSchemaNotice } from './file-manager.js';
+import { createEl, logDev } from './utils.js';
+import { icon } from './icons.js';
 
-const LINKS = [
-  { href: './elementary-calendar.html', title: 'خطة النشاط للصفوف الأولية', desc: 'تقويم شهري للأنشطة' },
-  { href: './upper-calendar.html', title: 'خطة النشاط للصفوف العليا', desc: 'تقويم منفصل للصفوف العليا' },
-  { href: './programs.html', title: 'البرامج والأنشطة', desc: 'النشاط الصفي واللاصفي' },
-  { href: './schedule.html', title: 'جدول حصص النشاط', desc: 'رفع ومعاينة الجداول' },
-  { href: './competitions.html', title: 'المسابقات', desc: 'المسابقات والشواهد' },
-  { href: './honors.html', title: 'التكريم', desc: 'تكريم الطالبات والمعلمات' },
-  { href: './gallery.html', title: 'معرض النشاط', desc: 'صور الفعاليات' },
-];
-
-bootProtectedPage({ title: 'الرئيسية' }, async (ctx) => {
+bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
   const root = ctx.content;
 
-  const hero = createEl('section', { className: 'hero-panel' }, [
-    createEl('h2', { textContent: ctx.settings.platform_name || 'منصة النشاط الطلابي' }),
-    createEl('p', {
-      textContent: `رائدة النشاط / ${ctx.settings.leader_name || 'إيمان الرحيلي'}`,
-    }),
-  ]);
-  root.appendChild(hero);
+  root.appendChild(
+    createEl('section', { className: 'hero-panel hero-panel--brand' }, [
+      createEl('img', {
+        className: 'hero-panel__logo',
+        src: './assets/images/school-logo.png',
+        alt: 'شعار المدرسة',
+        width: '64',
+        height: '64',
+      }),
+      createEl('div', {}, [
+        createEl('h2', { textContent: ctx.settings.platform_name || 'منصة النشاط الطلابي' }),
+        createEl('p', {
+          textContent: `رائدة النشاط / ${ctx.settings.leader_name || 'إيمان الرحيلي'}`,
+        }),
+        createEl('p', {
+          className: 'hero-panel__sub',
+          textContent: 'السجل الإلكتروني المتكامل لرائدة النشاط — اختاري القسم لعرض ملفاته أو إضافة ملفات جديدة.',
+        }),
+      ]),
+    ])
+  );
 
-  const stats = createEl('section', { className: 'stat-grid', 'aria-label': 'إحصائيات' });
-  root.appendChild(stats);
+  const notice = createEl('div');
+  root.appendChild(notice);
 
-  const cards = createEl('section', { className: 'dash-grid', 'aria-label': 'أقسام المنصة' });
-  LINKS.forEach((item) => {
-    const a = createEl('a', { href: item.href, className: 'dash-card' });
-    a.append(
-      createEl('h3', { textContent: item.title }),
-      createEl('p', { textContent: item.desc })
+  const summary = createEl('div', { className: 'dash-summary' });
+  root.appendChild(summary);
+
+  const grid = createEl('section', { className: 'section-grid', 'aria-label': 'أقسام السجل الإلكتروني' });
+  const countEls = {};
+  SECTIONS.forEach((s, i) => {
+    const count = createEl('span', { className: 'section-card__count is-loading', textContent: '…' });
+    countEls[s.key] = count;
+    grid.appendChild(
+      createEl('a', { href: `./${s.page}`, className: 'section-card' }, [
+        createEl('div', { className: 'section-card__top' }, [
+          createEl('span', { className: 'section-card__num', textContent: String(i + 1) }),
+          createEl('span', { className: 'section-card__icon' }, [icon(s.icon, { size: 26 })]),
+        ]),
+        createEl('h3', { className: 'section-card__title', textContent: s.title }),
+        createEl('p', { className: 'section-card__desc', textContent: s.description }),
+        createEl('div', { className: 'section-card__foot' }, [
+          createEl('span', { className: 'section-card__files' }, [
+            icon('paperclip', { size: 16 }),
+            count,
+            createEl('span', { textContent: 'ملف' }),
+          ]),
+          createEl('span', { className: 'section-card__go' }, [
+            createEl('span', { textContent: 'فتح القسم' }),
+            icon('chevronLeft', { size: 16 }),
+          ]),
+        ]),
+      ])
     );
-    cards.appendChild(a);
   });
-  root.appendChild(cards);
+  root.appendChild(grid);
 
-  const recent = createEl('section', { className: 'section' });
-  recent.appendChild(createEl('h3', { className: 'section__title', textContent: 'آخر التحديثات' }));
-  const recentGrid = createEl('div', { className: 'dash-grid' });
-  recent.appendChild(recentGrid);
-  root.appendChild(recent);
-
-  try {
-    const [classroom, extra, competitions, honors, gallery] = await Promise.all([
-      countRows('classroom_programs'),
-      countRows('extracurricular_programs'),
-      countRows('competitions'),
-      countRows('honors'),
-      countRows('gallery'),
-    ]);
-
-    const defs = [
-      { label: 'عدد البرامج', value: classroom + extra },
-      { label: 'عدد المسابقات', value: competitions },
-      { label: 'عدد التكريمات', value: honors },
-      { label: 'عدد صور المعرض', value: gallery },
-    ];
-
-    clearElement(stats);
-    defs.forEach((d) => {
-      const card = createEl('article', { className: 'stat-card' });
-      card.append(
-        createEl('div', { className: 'stat-card__label', textContent: d.label }),
-        createEl('div', { className: 'stat-card__value', textContent: String(d.value) })
-      );
-      stats.appendChild(card);
-    });
-
-    const [lastPrograms, lastCompetitions, lastHonors] = await Promise.all([
-      listRows('classroom_programs', { to: 4, orderBy: 'created_at' }),
-      listRows('competitions', { to: 4, orderBy: 'created_at' }),
-      listRows('honors', { to: 4, orderBy: 'created_at' }),
-    ]);
-
-    clearElement(recentGrid);
-    recentGrid.append(
-      buildRecent('آخر البرامج', lastPrograms.data, (r) => r.program_name, (r) => r.execution_date),
-      buildRecent(
-        'آخر المسابقات',
-        lastCompetitions.data,
-        (r) => r.competition_name,
-        (r) => r.competition_date
-      ),
-      buildRecent(
-        'آخر التكريمات',
-        lastHonors.data,
-        (r) => r.recipient_name,
-        (r) => r.honor_date
+  const legacy = createEl('section', { className: 'section legacy-links' }, [
+    createEl('h3', { className: 'section__title' }, [
+      icon('archive', { size: 18 }),
+      createEl('span', { textContent: ' أقسام سابقة (بياناتها محفوظة كما هي)' }),
+    ]),
+    createEl(
+      'div',
+      { className: 'legacy-links__grid' },
+      LEGACY_PAGES.map((p) =>
+        createEl('a', { href: p.href, className: 'legacy-link' }, [
+          icon(p.icon, { size: 18 }),
+          createEl('span', { textContent: p.label }),
+        ])
       )
-    );
+    ),
+  ]);
+  root.appendChild(legacy);
+
+  let counts = null;
+  try {
+    counts = await fetchSectionFileCounts();
   } catch (err) {
-    ctx.handleError(err);
+    logDev(err);
+    if (isMissingSchemaError(err)) renderSchemaNotice(notice);
+    else ctx.handleError(err, 'تعذّر تحميل عدد الملفات');
+  }
+
+  let legacyHonorFiles = 0;
+  try {
+    legacyHonorFiles = await countRows('honor_files');
+  } catch (err) {
+    logDev(err);
+  }
+
+  let total = 0;
+  SECTIONS.forEach((s) => {
+    const el = countEls[s.key];
+    el.classList.remove('is-loading');
+    if (!counts) {
+      el.textContent = s.key === 'honors' && legacyHonorFiles ? String(legacyHonorFiles) : '—';
+      return;
+    }
+    let n = counts[s.key] || 0;
+    if (s.key === 'honors') n += legacyHonorFiles;
+    total += n;
+    el.textContent = String(n);
+    el.closest('.section-card').classList.toggle('is-empty', n === 0);
+  });
+
+  if (counts) {
+    const filled = SECTIONS.filter((s) => (counts[s.key] || 0) + (s.key === 'honors' ? legacyHonorFiles : 0) > 0).length;
+    summary.append(
+      createEl('div', { className: 'stat-card' }, [
+        createEl('div', { className: 'stat-card__label', textContent: 'إجمالي الملفات في السجل' }),
+        createEl('div', { className: 'stat-card__value', textContent: String(total) }),
+      ]),
+      createEl('div', { className: 'stat-card' }, [
+        createEl('div', { className: 'stat-card__label', textContent: 'أقسام تحتوي ملفات' }),
+        createEl('div', { className: 'stat-card__value', textContent: `${filled} / ${SECTIONS.length}` }),
+      ])
+    );
   }
 });
-
-function buildRecent(title, rows, nameFn, dateFn) {
-  const box = createEl('div', { className: 'card', style: 'padding:1rem' });
-  box.appendChild(createEl('h3', { className: 'section__title', textContent: title }));
-  if (!rows.length) {
-    renderEmpty(box, 'لا توجد بيانات بعد');
-    return box;
-  }
-  const list = createEl('div', { className: 'list-block' });
-  rows.forEach((r) => {
-    const item = createEl('div', { className: 'list-item' });
-    item.append(
-      createEl('strong', { textContent: nameFn(r) || '—' }),
-      createEl('span', { textContent: formatDate(dateFn(r)) })
-    );
-    list.appendChild(item);
-  });
-  box.appendChild(list);
-  return box;
-}

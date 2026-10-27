@@ -27,6 +27,44 @@ export const ALLOWED_DOCUMENT_TYPES = Object.freeze([
 ]);
 
 export const SIGNED_URL_EXPIRES_IN = 120; // ثانية
+export const THUMB_URL_EXPIRES_IN = 600; // ثانية — صور مصغّرة في بطاقات الملفات
+
+/** ملفات أقسام رائدة النشاط (migrations/002) — حد الـ bucket الحالي 10MB */
+export const SECTION_FILE_MAX_SIZE = 10 * 1024 * 1024;
+
+/** امتداد → { mime قياسي، أنواع MIME المقبولة من المتصفح، نوع العرض } */
+export const SECTION_FILE_TYPES = Object.freeze({
+  pdf: { mime: 'application/pdf', accept: ['application/pdf'], kind: 'pdf' },
+  jpg: { mime: 'image/jpeg', accept: ['image/jpeg', 'image/pjpeg'], kind: 'image' },
+  jpeg: { mime: 'image/jpeg', accept: ['image/jpeg', 'image/pjpeg'], kind: 'image' },
+  png: { mime: 'image/png', accept: ['image/png'], kind: 'image' },
+  webp: { mime: 'image/webp', accept: ['image/webp'], kind: 'image' },
+  gif: { mime: 'image/gif', accept: ['image/gif'], kind: 'image' },
+  doc: { mime: 'application/msword', accept: ['application/msword'], kind: 'word' },
+  docx: {
+    mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    accept: [
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/octet-stream',
+      'application/zip',
+    ],
+    kind: 'word',
+  },
+  xls: {
+    mime: 'application/vnd.ms-excel',
+    accept: ['application/vnd.ms-excel', 'application/octet-stream'],
+    kind: 'excel',
+  },
+  xlsx: {
+    mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    accept: [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/octet-stream',
+      'application/zip',
+    ],
+    kind: 'excel',
+  },
+});
 
 export const PAGE_SIZE = 20;
 
