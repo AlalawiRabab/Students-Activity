@@ -18,6 +18,9 @@ const BACKUP_TABLES = [
   'honors',
   'honor_files',
   'gallery',
+  'activity_sections',
+  'activity_records',
+  'section_files',
 ];
 
 const FORBIDDEN_IMPORT_TABLES = new Set(['profiles', 'audit_logs']);
