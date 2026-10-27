@@ -11,7 +11,58 @@
 -- - لا يغيّر سياسات الجداول القديمة ولا سياسات Storage الحالية.
 -- - يعيد استخدام دوال الصلاحيات الموجودة: is_profile_active() / is_editor().
 -- - يعيد استخدام الـ bucket الخاص student-activity-files بمسار جديد sections/...
+-- - المتطلب المسبق: database.sql (ثم 001) منفّذان على المشروع.
 -- =====================================================================
+
+-- =====================================================================
+-- 0) فحص مسبق: يتوقف الترحيل برسالة واضحة إن نقص أي اعتماد — قبل إنشاء أي شيء
+-- =====================================================================
+do $$
+declare
+  missing text[] := array[]::text[];
+  fn record;
+begin
+  for fn in
+    select * from (values
+      ('public.is_editor()',         'boolean', true),
+      ('public.is_profile_active()', 'boolean', true),
+      ('public.set_updated_at()',    'trigger', false),
+      ('auth.uid()',                 'uuid',    null::boolean)
+    ) as t(sig, ret, must_definer)
+  loop
+    if to_regprocedure(fn.sig) is null then
+      missing := missing || format('function %s', fn.sig);
+    elsif pg_get_function_result(to_regprocedure(fn.sig)) <> fn.ret then
+      missing := missing || format('function %s must return %s (found %s)',
+        fn.sig, fn.ret, pg_get_function_result(to_regprocedure(fn.sig)));
+    elsif fn.must_definer is true and not (
+      select p.prosecdef from pg_proc p where p.oid = to_regprocedure(fn.sig)
+    ) then
+      missing := missing || format('function %s must be SECURITY DEFINER', fn.sig);
+    end if;
+  end loop;
+
+  if to_regclass('public.profiles') is null then missing := missing || 'table public.profiles'::text; end if;
+  if to_regclass('auth.users') is null then missing := missing || 'table auth.users'::text; end if;
+  if to_regclass('storage.objects') is null then missing := missing || 'table storage.objects'::text; end if;
+  if to_regclass('storage.buckets') is null then
+    missing := missing || 'table storage.buckets'::text;
+  elsif not exists (select 1 from storage.buckets where id = 'student-activity-files') then
+    missing := missing || 'storage bucket student-activity-files'::text;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    missing := missing || 'role authenticated'::text;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    missing := missing || 'role anon'::text;
+  end if;
+
+  if array_length(missing, 1) > 0 then
+    raise exception
+      'migration 002 متوقف: متطلبات ناقصة — نفّذ database.sql أولاً. Missing: %',
+      array_to_string(missing, '; ');
+  end if;
+end $$;
 
 create extension if not exists "pgcrypto";
 
@@ -63,11 +114,8 @@ insert into public.activity_sections (key, title, description, kind, sort_order)
      'استطلاعات أولياء الأمور ونتائجها وتحليلها.', 'records', 11),
   ('honors',            'التكريمات',
      'التكريمات مع الصور والشهادات والملفات.', 'records', 12)
-on conflict (key) do update set
-  title = excluded.title,
-  description = excluded.description,
-  kind = excluded.kind,
-  sort_order = excluded.sort_order;
+-- إعادة التشغيل لا تكتب فوق أي تعديل يدوي على صفوف موجودة؛ تضيف المفاتيح الناقصة فقط
+on conflict (key) do nothing;
 
 -- =====================================================================
 -- 2) سجلات الأقسام (عام مع حقول حسب نوع القسم)
@@ -148,22 +196,37 @@ create table if not exists public.section_files (
   updated_by uuid references auth.users (id) on delete set null,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
+  -- مطابقة حرفية للمقطعين الأولين (LIKE يعامل _ كحرف بدل، لذا لا يُستخدم هنا)
   constraint section_files_path_prefix
-    check (storage_path like ('sections/' || section_key || '/%'))
+    check (
+      split_part(storage_path, '/', 1) = 'sections'
+      and split_part(storage_path, '/', 2) = section_key
+    )
 );
 
+-- ON DELETE RESTRICT: لا يُحذف سجل ما دامت له ملفات؛ الواجهة تحذف كائنات Storage
+-- ثم صفوف الملفات ثم السجل. CASCADE كان سيحذف الصفوف بصمت ويترك الكائنات يتيمة في Storage.
 do $$
+declare
+  v_deltype "char";
 begin
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'section_files_record_fk'
-      and conrelid = 'public.section_files'::regclass
-  ) then
+  select c.confdeltype into v_deltype
+  from pg_constraint c
+  where c.conname = 'section_files_record_fk'
+    and c.conrelid = 'public.section_files'::regclass;
+
+  if v_deltype is not null and v_deltype <> 'r' then
+    -- قيد يخص هذا الترحيل فقط (من نسخة سابقة منه) — يُستبدل دون أي حذف بيانات
+    alter table public.section_files drop constraint section_files_record_fk;
+    v_deltype := null;
+  end if;
+
+  if v_deltype is null then
     alter table public.section_files
       add constraint section_files_record_fk
       foreign key (record_id, section_key)
       references public.activity_records (id, section_key)
-      on delete cascade;
+      on delete restrict;
   end if;
 end $$;
 
@@ -392,8 +455,10 @@ grant execute on function public.section_file_counts() to authenticated;
 --   sap_storage_select : أي مستخدم نشط يقرأ (Signed URL / download) — تغطي sections/ تلقائياً
 --   sap_storage_delete : المحرر يحذف — تغطي sections/ تلقائياً
 --   sap_storage_insert : مقيدة بمسارات {uid}/gallery|schedules|competitions|honors
+--   sap_storage_update : المحرر فقط، وWITH CHECK يشترط المسارات القديمة
 -- لذلك نضيف سياسة INSERT جديدة (permissive) خاصة بالمسار الجديد فقط:
 --   sections/<section_key>/<sub_key|record_id>/<uuid>.<ext>
+-- وسياسة UPDATE تقييدية تمنع النقل/الكتابة فوق كائنات sections/ (انظر أدناه).
 -- =====================================================================
 
 -- إضافة أنواع Word / Excel / GIF إلى الأنواع المسموحة في الـ bucket (دمج بدون حذف أي نوع قائم)
@@ -448,6 +513,16 @@ create policy sap_sections_storage_insert on storage.objects
 
 comment on function public.is_allowed_section_path is
   'يسمح بالرفع تحت sections/<section_key>/<scope>/<uuid>.<ext> فقط لمفاتيح أقسام مسجلة';
+
+-- سياسة RESTRICTIVE (تُضاف بـ AND إلى السياسات الحالية) تمنع UPDATE على كائنات sections/
+-- لأي مستخدم: لا upsert فوق ملف قائم ولا نقل/إعادة تسمية من أو إلى sections/
+-- (ذلك كان سيفصل الملف عن صفه في section_files). لا أثر لها على مسارات الصفحات القديمة.
+drop policy if exists sap_sections_storage_no_update on storage.objects;
+create policy sap_sections_storage_no_update on storage.objects
+  as restrictive
+  for update to authenticated
+  using (not (bucket_id = 'student-activity-files' and name like 'sections/%'))
+  with check (not (bucket_id = 'student-activity-files' and name like 'sections/%'));
 
 -- =====================================================================
 -- 9) تحقق بعد التنفيذ (اختياري)

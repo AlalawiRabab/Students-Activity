@@ -6,6 +6,7 @@ import { bootProtectedPage } from './app.js';
 import { getSection, sectionIndex, SECTIONS } from './sections-config.js';
 import {
   createFileManager,
+  listSectionFiles,
   listAllSectionFiles,
   deleteSectionFiles,
   getThumbUrls,
@@ -446,13 +447,33 @@ async function renderRecords(ctx, body) {
     });
     if (!ok) return;
     try {
-      if (rf.length) await deleteSectionFiles(rf);
-      await deleteRow('activity_records', r.id, 'activity_records');
-      records = records.filter((x) => x.id !== r.id);
+      // قائمة حديثة من قاعدة البيانات (قد يكون مستخدم آخر أرفق ملفات بعد تحميل الصفحة)
+      const fresh = await listSectionFiles({ sectionKey: section.key, recordId: r.id });
+      try {
+        await deleteSectionFiles(fresh);
+      } catch (err) {
+        const gone = new Set((err.deleted || []).map((f) => f.id));
+        files = files.filter((f) => !gone.has(f.id));
+        render();
+        ctx.showToast(`${err.message} — لم يُحذف السجل حتى لا تبقى ملفات بلا سجل`, 'error');
+        return;
+      }
       files = files.filter((f) => f.record_id !== r.id);
+      try {
+        await deleteRow('activity_records', r.id, 'activity_records');
+      } catch (err) {
+        // 23001 restrict_violation (ON DELETE RESTRICT) / 23503 foreign_key_violation
+        if (err?.code === '23001' || err?.code === '23503') {
+          ctx.showToast('أُضيفت مرفقات جديدة لهذا السجل أثناء الحذف؛ حدّثي الصفحة ثم أعيدي المحاولة', 'error');
+          return;
+        }
+        throw err;
+      }
+      records = records.filter((x) => x.id !== r.id);
       ctx.showToast('تم الحذف', 'success');
       render();
     } catch (err) {
+      render();
       ctx.handleError(err);
     }
   }

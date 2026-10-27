@@ -115,8 +115,10 @@ where p.id = u.id and u.email = 'admin@example.com';
 ### تفعيل الأقسام (مرة واحدة)
 
 1. افتح **SQL Editor** في مشروع Supabase الحالي.
-2. الصق محتوى [`migrations/002_activity_sections.sql`](./migrations/002_activity_sections.sql) كاملاً، راجعه، ثم **Run**.
-3. الملف إضافي فقط: ينشئ `activity_sections` و`activity_records` و`section_files` مع RLS، ويضيف أنواع Word/Excel/GIF إلى الـ bucket، ويضيف سياسة رفع جديدة للمسار `sections/` دون تعديل السياسات أو البيانات الحالية.
+2. شغّل استعلامات القراءة فقط في [`migrations/002_verify_readonly.sql`](./migrations/002_verify_readonly.sql) واحفظ نتائجها (قبل).
+3. الصق محتوى [`migrations/002_activity_sections.sql`](./migrations/002_activity_sections.sql) كاملاً، راجعه، ثم **Run**. يبدأ بفحص مسبق يتوقف برسالة واضحة إن نقصت دوال `database.sql` أو الـ bucket.
+4. أعد تشغيل استعلامات التحقق وقارن (بعد).
+5. الملف إضافي فقط وآمن لإعادة التشغيل: ينشئ `activity_sections` و`activity_records` و`section_files` مع RLS، ويضيف أنواع Word/Excel/GIF إلى الـ bucket، ويضيف سياسة رفع للمسار `sections/` وسياسة تقييدية تمنع نقل/الكتابة فوق كائناته — دون تعديل السياسات أو البيانات الحالية.
 
 ---
 

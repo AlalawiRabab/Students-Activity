@@ -164,7 +164,10 @@ export async function uploadSectionFile({
 
   const sb = getSupabase();
   const path = `sections/${sectionKey}/${scopeSegment({ subKey, recordId })}/${uuidV4()}.${check.ext}`;
-  const { error: upErr } = await sb.storage.from(STORAGE_BUCKET).upload(path, file, {
+  // storage-js يرسل File/Blob كـ multipart ويتجاهل contentType؛ نوع الجزء = blob.type.
+  // بعض المتصفحات (Windows) تعطي docx/xlsx نوعاً فارغاً → يُرسل octet-stream ويرفضه الـ bucket.
+  const body = file.type === check.mime ? file : new Blob([file], { type: check.mime });
+  const { error: upErr } = await sb.storage.from(STORAGE_BUCKET).upload(path, body, {
     cacheControl: '3600',
     upsert: false,
     contentType: check.mime,
@@ -225,25 +228,75 @@ export async function updateSectionFile(id, { title, description, category }) {
   return data;
 }
 
-/** حذف كائنات Storage ثم صفوف البيانات الوصفية */
+/**
+ * هل ما زال الكائن موجوداً في Storage؟ (remove لا يُرجع خطأ لما رفضته RLS أو لما لم يوجد)
+ * @returns {Promise<boolean|null>} null عند تعذّر التحقق
+ */
+async function objectStillExists(path) {
+  const sb = getSupabase();
+  const i = path.lastIndexOf('/');
+  const { data, error } = await sb.storage
+    .from(STORAGE_BUCKET)
+    .list(path.slice(0, i), { search: path.slice(i + 1), limit: 10 });
+  if (error) {
+    logDev('verify remove', error);
+    return null;
+  }
+  return (data || []).some((o) => o.name === path.slice(i + 1));
+}
+
+/**
+ * الترتيب الآمن: حذف كائنات Storage أولاً ثم صفوف البيانات الوصفية لما تأكّد حذفه فقط.
+ * لو فشل حذف الصف بعد حذف الكائن يبقى صف بلا ملف (ظاهر وقابل لإعادة الحذف)،
+ * أما العكس فيترك كائناً يتيماً غير مرئي في التخزين.
+ * @returns {Promise<{ deleted: object[] }>} يرمي خطأً عربياً إن تعذّر حذف أي ملف
+ */
 export async function deleteSectionFiles(rows) {
   const list = (rows || []).filter(Boolean);
-  if (!list.length) return;
+  if (!list.length) return { deleted: [] };
   const sb = getSupabase();
-  const paths = list.map((r) => r.storage_path).filter(Boolean);
-  if (paths.length) {
-    const { error } = await sb.storage.from(STORAGE_BUCKET).remove(paths);
-    if (error) {
-      logDev(error);
-      throw new Error('تعذّر حذف الملف من التخزين');
+  const paths = list.map((r) => r.storage_path);
+  const { data, error } = await sb.storage.from(STORAGE_BUCKET).remove(paths);
+  if (error) {
+    logDev(error);
+    throw new Error('تعذّر حذف الملف من التخزين، لم يُحذف أي شيء');
+  }
+
+  const removed = new Set((data || []).map((o) => o.name));
+  const confirmed = [];
+  const failed = [];
+  for (const r of list) {
+    if (removed.has(r.storage_path)) {
+      confirmed.push(r);
+      continue;
+    }
+    const exists = await objectStillExists(r.storage_path);
+    if (exists === false) confirmed.push(r);
+    else failed.push(r);
+  }
+
+  if (confirmed.length) {
+    const { error: dbErr } = await sb
+      .from('section_files')
+      .delete()
+      .in('id', confirmed.map((r) => r.id));
+    if (dbErr) throw dbErr;
+    for (const r of confirmed) {
+      await writeAudit('delete', 'section_files', r.id, { id: r.id, file_name: r.original_name });
     }
   }
-  const ids = list.map((r) => r.id);
-  const { error } = await sb.from('section_files').delete().in('id', ids);
-  if (error) throw error;
-  for (const r of list) {
-    await writeAudit('delete', 'section_files', r.id, { id: r.id, file_name: r.original_name });
+
+  if (failed.length) {
+    const err = new Error(
+      failed.length === list.length
+        ? 'تعذّر حذف الملف من التخزين، لم يُحذف أي شيء'
+        : `تعذّر حذف ${failed.length} من ${list.length} ملفات من التخزين؛ بقيت كما هي`
+    );
+    err.deleted = confirmed;
+    err.failed = failed;
+    throw err;
   }
+  return { deleted: confirmed };
 }
 
 const urlCache = new Map();
