@@ -86,14 +86,13 @@ function uuidV4() {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
-function scopeSegment({ subKey, recordId }) {
-  return subKey || recordId || 'general';
+/** مقطع النطاق في مفتاح التخزين: التبويب، أو general للملفات المباشرة */
+function scopeSegment(subKey) {
+  return subKey || 'general';
 }
 
-function baseName(name) {
-  const s = String(name || '').trim();
-  const i = s.lastIndexOf('.');
-  return (i > 0 ? s.slice(0, i) : s).slice(0, 200) || 'ملف';
+function defaultTitle(name) {
+  return String(name || '').trim().slice(0, 200) || 'ملف';
 }
 
 export function sortFiles(rows, sortKey = 'newest') {
@@ -111,28 +110,35 @@ export function sortFiles(rows, sortKey = 'newest') {
 // Data API
 // ---------------------------------------------------------------------
 
-/** ملفات نطاق محدد (قسم / تبويب / سجل) — الأحدث أولاً */
-export async function listSectionFiles({ sectionKey, subKey = null, recordId = null }) {
+/**
+ * ملفات القسم أو التبويب — الأحدث أولاً.
+ * includeRecordFiles: يضم مرفقات سجلات activity_records القديمة (الأقسام 5–12) في القائمة نفسها.
+ */
+export async function listSectionFiles({ sectionKey, subKey = null, includeRecordFiles = false }) {
   const sb = getSupabase();
   let q = sb.from('section_files').select(FILE_COLUMNS).eq('section_key', sectionKey);
   q = subKey ? q.eq('sub_key', subKey) : q.is('sub_key', null);
-  q = recordId ? q.eq('record_id', recordId) : q.is('record_id', null);
-  const { data, error } = await q.order('created_at', { ascending: false }).limit(1000);
+  if (!includeRecordFiles) q = q.is('record_id', null);
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(2000);
   if (error) throw error;
   return data || [];
 }
 
-/** كل ملفات القسم (لسجلات القسم: العدد والغلاف والبحث) */
-export async function listAllSectionFiles(sectionKey) {
-  const sb = getSupabase();
-  const { data, error } = await sb
-    .from('section_files')
-    .select(FILE_COLUMNS)
-    .eq('section_key', sectionKey)
-    .order('created_at', { ascending: false })
-    .limit(2000);
-  if (error) throw error;
-  return data || [];
+/** عناوين السجلات القديمة (للإشارة إلى أصل المرفق فقط) — فشلها لا يمنع عرض الملفات */
+export async function fetchLegacyRecordTitles(sectionKey) {
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb
+      .from('activity_records')
+      .select('id, title')
+      .eq('section_key', sectionKey)
+      .limit(2000);
+    if (error) throw error;
+    return Object.fromEntries((data || []).map((r) => [r.id, r.title]));
+  } catch (err) {
+    logDev('legacy records', err);
+    return {};
+  }
 }
 
 /** عدد الملفات لكل section_key (يشمل التبويبين ومرفقات السجلات) */
@@ -148,22 +154,15 @@ export async function fetchSectionFileCounts() {
 }
 
 /**
- * رفع ملف: Storage أولاً ثم صف البيانات الوصفية؛ عند فشل الإدراج يُحذف الكائن.
+ * رفع ملف مباشرة إلى القسم/التبويب: Storage أولاً ثم صف البيانات الوصفية؛
+ * عند فشل الإدراج يُحذف الكائن المرفوع. العنوان = اسم الملف الأصلي.
  */
-export async function uploadSectionFile({
-  file,
-  sectionKey,
-  subKey = null,
-  recordId = null,
-  title,
-  description = null,
-  category = null,
-}) {
+export async function uploadSectionFile({ file, sectionKey, subKey = null }) {
   const check = validateSectionFile(file);
   if (!check.ok) throw new Error(check.error);
 
   const sb = getSupabase();
-  const path = `sections/${sectionKey}/${scopeSegment({ subKey, recordId })}/${uuidV4()}.${check.ext}`;
+  const path = `sections/${sectionKey}/${scopeSegment(subKey)}/${uuidV4()}.${check.ext}`;
   // storage-js يرسل File/Blob كـ multipart ويتجاهل contentType؛ نوع الجزء = blob.type.
   // بعض المتصفحات (Windows) تعطي docx/xlsx نوعاً فارغاً → يُرسل octet-stream ويرفضه الـ bucket.
   const body = file.type === check.mime ? file : new Blob([file], { type: check.mime });
@@ -183,15 +182,13 @@ export async function uploadSectionFile({
       .insert({
         section_key: sectionKey,
         sub_key: subKey,
-        record_id: recordId,
-        category: category || null,
+        record_id: null,
         storage_path: path,
         original_name: String(file.name).slice(0, 255),
         mime_type: check.mime,
         file_kind: check.kind,
         file_size: file.size,
-        title: (title || baseName(file.name)).trim().slice(0, 200),
-        description: description ? String(description).trim().slice(0, 2000) : null,
+        title: defaultTitle(file.name),
       })
       .select(FILE_COLUMNS)
       .single();
@@ -211,15 +208,12 @@ export async function uploadSectionFile({
   }
 }
 
-export async function updateSectionFile(id, { title, description, category }) {
+/** إعادة تسمية العنوان المعروض فقط؛ مفتاح التخزين والاسم الأصلي لا يتغيران */
+export async function renameSectionFile(id, title) {
   const sb = getSupabase();
   const { data, error } = await sb
     .from('section_files')
-    .update({
-      title: String(title).trim(),
-      description: description ? String(description).trim() : null,
-      category: category || null,
-    })
+    .update({ title: String(title).trim().slice(0, 200) })
     .eq('id', id)
     .select(FILE_COLUMNS)
     .single();
@@ -553,51 +547,35 @@ export function openFilePreview(row, { list = null } = {}) {
   return { close };
 }
 
-function categorySelect(categories, value = '') {
-  const sel = createEl('select', { className: 'select' }, [
-    createEl('option', { value: '', textContent: 'بدون تصنيف' }),
-    ...categories.map((c) => createEl('option', { value: c.key, textContent: c.label })),
-  ]);
-  sel.value = value || '';
-  return sel;
-}
-
-/** نافذة تعديل العنوان والوصف (والتصنيف إن وُجد) */
-export function openEditFileDialog(row, { categories = [], onSaved } = {}) {
+/** إعادة تسمية العنوان المعروض فقط */
+export function openRenameDialog(row, { onSaved } = {}) {
   const form = createEl('form', { className: 'form-grid' });
-  const titleInput = createEl('input', { className: 'input', value: row.title || '', maxlength: '200' });
-  const descInput = createEl('textarea', { className: 'textarea', maxlength: '2000' });
-  descInput.value = row.description || '';
+  const titleInput = createEl('input', {
+    className: 'input',
+    value: row.title || row.original_name || '',
+    maxlength: '200',
+    'aria-label': 'الاسم المعروض',
+  });
   form.append(
-    createEl('p', { className: 'muted', dir: 'auto', textContent: `الملف: ${row.original_name}` }),
-    field('عنوان الملف', titleInput),
-    field('الوصف (اختياري)', descInput)
+    field('الاسم المعروض', titleInput, `الملف الأصلي: ${row.original_name}`),
   );
-  let catSel = null;
-  if (categories.length) {
-    catSel = categorySelect(categories, row.category);
-    form.appendChild(field('التصنيف', catSel));
-  }
-  const saveBtn = createEl('button', { type: 'submit', className: 'btn btn--primary', textContent: 'حفظ التعديل' });
+  const saveBtn = createEl('button', { type: 'submit', className: 'btn btn--primary', textContent: 'حفظ الاسم' });
   form.appendChild(createEl('div', { className: 'modal__actions' }, [saveBtn]));
-  const { close } = openModal({ title: 'تعديل بيانات الملف', contentNode: form });
+  const { close } = openModal({ title: 'إعادة تسمية الملف', contentNode: form });
   titleInput.focus();
+  titleInput.select();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const err = validateLength(titleInput.value, 'عنوان الملف', 1, 200);
+    const err = validateLength(titleInput.value, 'الاسم', 1, 200);
     if (err) {
       showToast(err, 'error');
       return;
     }
     setButtonLoading(saveBtn, true);
     try {
-      const updated = await updateSectionFile(row.id, {
-        title: titleInput.value,
-        description: descInput.value,
-        category: catSel ? catSel.value : row.category,
-      });
-      showToast('تم حفظ بيانات الملف', 'success');
+      const updated = await renameSectionFile(row.id, titleInput.value);
+      showToast('تمت إعادة التسمية', 'success');
       close();
       if (typeof onSaved === 'function') onSaved(updated);
     } catch (error) {
@@ -610,9 +588,12 @@ export function openEditFileDialog(row, { categories = [], onSaved } = {}) {
 
 /** تأكيد صريح يعرض اسم الملف قبل الحذف */
 export async function confirmDeleteFile(row) {
+  const name = row.title && row.title !== row.original_name
+    ? `«${row.title}» (${row.original_name})`
+    : `«${row.original_name}»`;
   return confirmDialog({
     title: 'حذف الملف نهائياً',
-    message: `سيتم حذف الملف «${row.title || row.original_name}» (${row.original_name}) من التخزين نهائياً ولا يمكن التراجع. هل تريدين المتابعة؟`,
+    message: `سيتم حذف الملف ${name} من التخزين نهائياً ولا يمكن التراجع. هل تريدين المتابعة؟`,
     confirmText: 'نعم، احذف الملف',
     cancelText: 'تراجع',
     danger: true,
@@ -620,173 +601,7 @@ export async function confirmDeleteFile(row) {
 }
 
 // ---------------------------------------------------------------------
-// UI: upload dialog
-// ---------------------------------------------------------------------
-
-/**
- * نافذة رفع متعدد: عنوان لكل ملف + وصف وتصنيف مشتركان.
- * onUploaded(row) يُستدعى فور نجاح كل ملف لإظهاره دون تحديث الصفحة.
- */
-export function openUploadDialog({
-  scope,
-  categories = [],
-  initialFiles = [],
-  title = 'رفع ملفات',
-  onUploaded,
-}) {
-  const wrap = createEl('form', { className: 'form-grid upload-form' });
-  const input = createEl('input', {
-    type: 'file',
-    multiple: true,
-    accept: FILE_ACCEPT,
-    className: 'visually-hidden',
-    id: `fm-input-${Math.random().toString(36).slice(2)}`,
-  });
-  const drop = createEl('label', { className: 'dropzone', for: input.id }, [
-    icon('upload', { size: 30 }),
-    createEl('strong', { textContent: 'اختاري الملفات من جهازك أو اسحبيها هنا' }),
-    createEl('span', {
-      className: 'muted',
-      textContent: 'PDF، Word، Excel، صور (JPG / PNG / WEBP / GIF) — حتى 10 م.ب للملف',
-    }),
-  ]);
-  const listEl = createEl('div', { className: 'upload-list' });
-  const descInput = createEl('textarea', {
-    className: 'textarea',
-    maxlength: '2000',
-    placeholder: 'وصف مشترك للملفات المختارة (اختياري)',
-  });
-  let catSel = null;
-  wrap.append(input, drop, listEl, field('الوصف (اختياري)', descInput));
-  if (categories.length) {
-    catSel = categorySelect(categories);
-    wrap.appendChild(field('التصنيف', catSel));
-  }
-  const submitBtn = createEl('button', { type: 'submit', className: 'btn btn--primary' }, [
-    icon('upload', { size: 18 }),
-    createEl('span', { textContent: 'رفع الملفات' }),
-  ]);
-  wrap.appendChild(createEl('div', { className: 'modal__actions' }, [submitBtn]));
-
-  /** @type {{ file: File, titleInput: HTMLInputElement, status: HTMLElement, done: boolean, item: HTMLElement }[]} */
-  let picked = [];
-
-  function addFiles(files) {
-    for (const file of files) {
-      const check = validateSectionFile(file);
-      if (!check.ok) {
-        showToast(check.error, 'error');
-        continue;
-      }
-      const titleInput = createEl('input', {
-        className: 'input',
-        value: baseName(file.name),
-        maxlength: '200',
-        'aria-label': `عنوان ${file.name}`,
-      });
-      const status = createEl('span', { className: 'upload-item__status muted', textContent: formatBytes(file.size) });
-      const removeBtn = createEl('button', {
-        type: 'button',
-        className: 'icon-btn icon-btn--sm',
-        'aria-label': 'إزالة من القائمة',
-      }, [icon('close', { size: 16 })]);
-      const item = createEl('div', { className: 'upload-item' }, [
-        kindTile(check.kind, 22),
-        createEl('div', { className: 'upload-item__body' }, [
-          titleInput,
-          createEl('span', { className: 'upload-item__name', dir: 'auto', textContent: file.name }),
-        ]),
-        status,
-        removeBtn,
-      ]);
-      const entry = { file, titleInput, status, done: false, item };
-      removeBtn.addEventListener('click', () => {
-        picked = picked.filter((p) => p !== entry);
-        item.remove();
-      });
-      picked.push(entry);
-      listEl.appendChild(item);
-    }
-  }
-
-  input.addEventListener('change', () => {
-    addFiles([...(input.files || [])]);
-    input.value = '';
-  });
-  ['dragenter', 'dragover'].forEach((ev) =>
-    drop.addEventListener(ev, (e) => {
-      e.preventDefault();
-      drop.classList.add('is-over');
-    })
-  );
-  ['dragleave', 'drop'].forEach((ev) =>
-    drop.addEventListener(ev, () => drop.classList.remove('is-over'))
-  );
-  drop.addEventListener('drop', (e) => {
-    e.preventDefault();
-    addFiles([...(e.dataTransfer?.files || [])]);
-  });
-
-  const { close } = openModal({ title, contentNode: wrap });
-  if (initialFiles.length) addFiles(initialFiles);
-
-  wrap.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const pending = picked.filter((p) => !p.done);
-    if (!pending.length) {
-      showToast('اختاري ملفاً واحداً على الأقل', 'error');
-      return;
-    }
-    for (const p of pending) {
-      const err = validateLength(p.titleInput.value, 'عنوان الملف', 1, 200);
-      if (err) {
-        showToast(`${err} (${p.file.name})`, 'error');
-        p.titleInput.focus();
-        return;
-      }
-    }
-    setButtonLoading(submitBtn, true, 'جارٍ الرفع...');
-    let ok = 0;
-    let failed = 0;
-    for (const p of pending) {
-      p.status.textContent = 'جارٍ الرفع...';
-      p.item.classList.add('is-busy');
-      try {
-        const row = await uploadSectionFile({
-          file: p.file,
-          ...scope,
-          title: p.titleInput.value,
-          description: descInput.value,
-          category: catSel ? catSel.value : null,
-        });
-        p.done = true;
-        ok += 1;
-        p.status.textContent = 'تم الرفع ✓';
-        p.item.classList.remove('is-busy');
-        p.item.classList.add('is-done');
-        p.titleInput.disabled = true;
-        if (typeof onUploaded === 'function') onUploaded(row);
-      } catch (err) {
-        failed += 1;
-        logDev(err);
-        p.item.classList.remove('is-busy');
-        p.item.classList.add('is-failed');
-        p.status.textContent = 'فشل الرفع';
-        handleError(err, `تعذّر رفع ${p.file.name}`);
-      }
-    }
-    setButtonLoading(submitBtn, false);
-    if (ok && !failed) {
-      showToast(ok === 1 ? 'تم رفع الملف بنجاح' : `تم رفع ${ok} ملفات بنجاح`, 'success');
-      close();
-    } else if (ok && failed) {
-      showToast(`تم رفع ${ok} وتعذّر رفع ${failed} — راجعي القائمة`, 'error');
-    }
-  });
-}
-
-// ---------------------------------------------------------------------
-// UI: reusable file manager panel
+// UI: مكتبة ملفات القسم (رفع مباشر بلا نماذج)
 // ---------------------------------------------------------------------
 
 /**
@@ -795,8 +610,7 @@ export function openUploadDialog({
  *   container: HTMLElement,
  *   sectionKey: string,
  *   subKey?: string|null,
- *   recordId?: string|null,
- *   categories?: {key:string,label:string}[],
+ *   includeRecordFiles?: boolean,
  *   uploadLabel?: string,
  *   emptyText?: string,
  *   onChange?: (rows: object[]) => void,
@@ -808,16 +622,17 @@ export function createFileManager(opts) {
     container,
     sectionKey,
     subKey = null,
-    recordId = null,
-    categories = [],
+    includeRecordFiles = false,
     uploadLabel = 'رفع ملف جديد',
     emptyText = 'لا توجد ملفات بعد',
     onChange,
   } = opts;
-  const scope = { sectionKey, subKey, recordId };
   let rows = [];
   let loaded = false;
   let sortKey = 'newest';
+  let recordTitles = {};
+  /** @type {{ key: string, name: string, kind: string }[]} */
+  let pending = [];
 
   const root = createEl('div', { className: 'file-manager' });
   const bar = createEl('div', { className: 'fm-toolbar no-print' });
@@ -825,7 +640,7 @@ export function createFileManager(opts) {
   const searchInput = createEl('input', {
     type: 'search',
     className: 'input',
-    placeholder: 'ابحثي باسم الملف أو عنوانه...',
+    placeholder: 'ابحثي باسم الملف...',
     'aria-label': 'بحث في الملفات',
   });
   searchWrap.append(icon('search', { size: 18 }), searchInput);
@@ -834,29 +649,43 @@ export function createFileManager(opts) {
     { className: 'select fm-sort', 'aria-label': 'ترتيب الملفات' },
     SORT_OPTIONS.map((o) => createEl('option', { value: o.key, textContent: o.label }))
   );
-  let catFilter = null;
   const countEl = createEl('span', { className: 'fm-count muted' });
-  bar.append(searchWrap, sortSel);
-  if (categories.length) {
-    catFilter = createEl('select', { className: 'select fm-sort', 'aria-label': 'تصفية حسب التصنيف' }, [
-      createEl('option', { value: '', textContent: 'كل التصنيفات' }),
-      ...categories.map((c) => createEl('option', { value: c.key, textContent: c.label })),
-    ]);
-    bar.appendChild(catFilter);
-  }
-  bar.appendChild(countEl);
+  bar.append(searchWrap, sortSel, countEl);
+
+  const picker = createEl('input', {
+    type: 'file',
+    multiple: true,
+    accept: FILE_ACCEPT,
+    className: 'visually-hidden fm-picker',
+    tabindex: '-1',
+    'aria-hidden': 'true',
+  });
+  root.appendChild(picker);
+  picker.addEventListener('change', () => {
+    const files = [...(picker.files || [])];
+    picker.value = '';
+    uploadFiles(files);
+  });
 
   if (ctx.canEdit) {
     const upBtn = createEl('button', { type: 'button', className: 'btn btn--primary btn--upload' }, [
       icon('upload', { size: 18 }),
       createEl('span', { textContent: uploadLabel }),
     ]);
-    upBtn.addEventListener('click', () => openUpload());
+    upBtn.addEventListener('click', () => picker.click());
     bar.appendChild(upBtn);
   }
 
+  const hint = ctx.canEdit
+    ? createEl('p', {
+        className: 'fm-hint muted no-print',
+        textContent: 'PDF، Word، Excel، صور (JPG / PNG / WEBP / GIF) — حتى 10 م.ب للملف. يمكن اختيار عدة ملفات أو سحبها إلى هنا.',
+      })
+    : null;
   const grid = createEl('div', { className: 'file-grid', 'aria-live': 'polite' });
-  root.append(bar, grid);
+  root.append(bar);
+  if (hint) root.appendChild(hint);
+  root.appendChild(grid);
   container.appendChild(root);
 
   if (ctx.canEdit) {
@@ -873,7 +702,7 @@ export function createFileManager(opts) {
       if (!e.dataTransfer?.files?.length) return;
       e.preventDefault();
       root.classList.remove('is-drag');
-      openUpload([...e.dataTransfer.files]);
+      uploadFiles([...e.dataTransfer.files]);
     });
   }
 
@@ -882,20 +711,38 @@ export function createFileManager(opts) {
     sortKey = sortSel.value;
     render();
   });
-  if (catFilter) catFilter.addEventListener('change', () => render());
 
-  function openUpload(initialFiles = []) {
-    openUploadDialog({
-      scope,
-      categories,
-      initialFiles,
-      title: uploadLabel,
-      onUploaded: (row) => {
+  async function uploadFiles(files) {
+    if (!ctx.canEdit || !files.length) return;
+    const valid = [];
+    for (const file of files) {
+      const check = validateSectionFile(file);
+      if (check.ok) valid.push({ file, kind: check.kind });
+      else showToast(check.error, 'error');
+    }
+    if (!valid.length) return;
+
+    const items = valid.map((v, i) => ({ key: `p-${Date.now()}-${i}`, name: v.file.name, kind: v.kind, file: v.file }));
+    pending = [...items, ...pending];
+    render();
+
+    let ok = 0;
+    for (const it of items) {
+      try {
+        const row = await uploadSectionFile({ file: it.file, sectionKey, subKey });
         rows = [row, ...rows];
+        ok += 1;
+      } catch (err) {
+        handleError(err, `تعذّر رفع «${it.name}»`);
+      } finally {
+        pending = pending.filter((p) => p.key !== it.key);
         render();
-        notify();
-      },
-    });
+      }
+    }
+    if (ok) {
+      showToast(ok === 1 ? 'تم رفع الملف بنجاح' : `تم رفع ${ok} ملفات بنجاح`, 'success');
+      notify();
+    }
   }
 
   function notify() {
@@ -904,14 +751,8 @@ export function createFileManager(opts) {
 
   function visibleRows() {
     const q = searchInput.value.trim();
-    const cat = catFilter ? catFilter.value : '';
     const filtered = rows.filter(
-      (r) =>
-        (!cat || r.category === cat) &&
-        (!q ||
-          arabicIncludes(r.title, q) ||
-          arabicIncludes(r.original_name, q) ||
-          arabicIncludes(r.description, q))
+      (r) => !q || arabicIncludes(r.title, q) || arabicIncludes(r.original_name, q)
     );
     return sortFiles(filtered, sortKey);
   }
@@ -930,20 +771,32 @@ export function createFileManager(opts) {
     ]);
     if (!filtered && ctx.canEdit) {
       box.appendChild(
-        createEl('span', { className: 'muted', textContent: 'اضغطي زر الرفع أو اسحبي الملفات إلى هنا' })
+        createEl('span', { className: 'muted', textContent: 'اضغطي «رفع ملف» أو اسحبي الملفات إلى هنا' })
       );
       const b = createEl('button', { type: 'button', className: 'btn btn--primary' }, [
         icon('upload', { size: 18 }),
         createEl('span', { textContent: uploadLabel }),
       ]);
-      b.addEventListener('click', () => openUpload());
+      b.addEventListener('click', () => picker.click());
       box.appendChild(b);
     }
     return box;
   }
 
+  function buildPendingCard(p) {
+    return createEl('article', { className: 'file-card file-card--pending', 'aria-busy': 'true' }, [
+      createEl('div', { className: `file-card__thumb file-card__thumb--${p.kind}` }, [
+        createEl('span', { className: 'spinner spinner--dark', 'aria-hidden': 'true' }),
+      ]),
+      createEl('div', { className: 'file-card__body' }, [
+        createEl('h4', { className: 'file-card__title', dir: 'auto', textContent: p.name }),
+        createEl('span', { className: 'file-card__name', textContent: 'جارٍ الرفع...' }),
+      ]),
+    ]);
+  }
+
   function buildCard(row, list) {
-    const card = createEl('article', { className: 'file-card' });
+    const card = createEl('article', { className: 'file-card', dataset: { fileId: row.id } });
     const thumb = createEl('button', {
       type: 'button',
       className: `file-card__thumb file-card__thumb--${row.file_kind}`,
@@ -966,30 +819,35 @@ export function createFileManager(opts) {
     }
     thumb.addEventListener('click', () => openFilePreview(row, { list }));
 
-    const catLabel = (categories.find((c) => c.key === row.category) || {}).label;
+    const legacyTitle = row.record_id ? recordTitles[row.record_id] : null;
     const body = createEl('div', { className: 'file-card__body' }, [
-      createEl('h4', { className: 'file-card__title', textContent: row.title }),
-      createEl('span', {
-        className: 'file-card__name',
-        dir: 'auto',
-        title: row.original_name,
-        textContent: row.original_name,
-      }),
+      createEl('h4', { className: 'file-card__title', dir: 'auto', textContent: row.title }),
+      row.title !== row.original_name
+        ? createEl('span', {
+            className: 'file-card__name',
+            dir: 'auto',
+            title: row.original_name,
+            textContent: row.original_name,
+          })
+        : null,
       createEl('div', { className: 'file-card__meta' }, [
         createEl('span', { className: `chip chip--${row.file_kind}`, textContent: kindLabel(row.file_kind) }),
-        catLabel ? createEl('span', { className: 'chip', textContent: catLabel }) : null,
         createEl('span', { textContent: formatBytes(row.file_size) }),
         createEl('span', { textContent: formatDate(row.created_at) }),
       ]),
-      row.description
-        ? createEl('p', { className: 'file-card__desc', textContent: row.description })
+      row.record_id
+        ? createEl('span', {
+            className: 'chip chip--legacy',
+            title: 'مرفق من سجل سابق',
+            textContent: legacyTitle ? `مرفق سابق: ${legacyTitle}` : 'مرفق سابق',
+          })
         : null,
     ]);
 
     const actions = createEl('div', { className: 'file-card__actions' });
     const act = (label, iconName, onClick, cls = '') => {
       const b = createEl('button', { type: 'button', className: `fc-btn ${cls}`, title: label }, [
-        icon(iconName, { size: 17 }),
+        icon(iconName, { size: 16 }),
         createEl('span', { textContent: label }),
       ]);
       b.addEventListener('click', onClick);
@@ -1011,9 +869,8 @@ export function createFileManager(opts) {
     );
     if (ctx.canEdit) {
       actions.append(
-        act('تعديل', 'edit', () =>
-          openEditFileDialog(row, {
-            categories,
+        act('إعادة تسمية', 'edit', () =>
+          openRenameDialog(row, {
             onSaved: (updated) => {
               rows = rows.map((r) => (r.id === updated.id ? updated : r));
               render();
@@ -1051,11 +908,12 @@ export function createFileManager(opts) {
   function render() {
     if (!loaded) return;
     const list = visibleRows();
-    const filtered = Boolean(searchInput.value.trim() || (catFilter && catFilter.value));
+    const filtered = Boolean(searchInput.value.trim());
     countEl.textContent = filtered ? `${list.length} من ${rows.length} ملف` : `${rows.length} ملف`;
     clearElement(grid);
+    pending.forEach((p) => grid.appendChild(buildPendingCard(p)));
     if (!list.length) {
-      grid.appendChild(renderEmptyState(filtered));
+      if (!pending.length) grid.appendChild(renderEmptyState(filtered));
       return;
     }
     const previewable = list.filter(canPreviewInline);
@@ -1068,7 +926,12 @@ export function createFileManager(opts) {
     renderSkeletons();
     countEl.textContent = '';
     try {
-      rows = await listSectionFiles(scope);
+      const [list, titles] = await Promise.all([
+        listSectionFiles({ sectionKey, subKey, includeRecordFiles }),
+        includeRecordFiles ? fetchLegacyRecordTitles(sectionKey) : Promise.resolve({}),
+      ]);
+      rows = list;
+      recordTitles = titles;
       loaded = true;
       render();
       notify();
@@ -1089,5 +952,5 @@ export function createFileManager(opts) {
   }
 
   reload();
-  return { reload, getRows: () => rows, root };
+  return { reload, getRows: () => rows, root, upload: uploadFiles };
 }

@@ -1,6 +1,10 @@
 /**
- * sections-config.js — تعريف أقسام السجل الإلكتروني لرائدة النشاط
+ * sections-config.js — أقسام السجل الإلكتروني لرائدة النشاط (مكتبة ملفات)
  * المفاتيح (key) ثابتة ومطابقة لجدول public.activity_sections في migrations/002_activity_sections.sql
+ * kind:
+ *   files   → ملفات مباشرة على القسم
+ *   tabs    → تبويبان مستقلان (الصفوف الأولية / العليا)
+ *   records → ملفات مباشرة على القسم + عرض مرفقات السجلات السابقة (إن وُجدت) في القائمة نفسها
  */
 
 export const GRADE_TABS = Object.freeze([
@@ -8,23 +12,7 @@ export const GRADE_TABS = Object.freeze([
   { key: 'upper', label: 'الصفوف العليا' },
 ]);
 
-const REPORT_CATEGORIES = [
-  { key: 'report', label: 'تقرير' },
-  { key: 'evidence', label: 'شاهد' },
-];
-
-const SURVEY_CATEGORIES = [
-  { key: 'questionnaire', label: 'الاستبانة' },
-  { key: 'analysis', label: 'تحليل النتائج' },
-  { key: 'attachment', label: 'مرفق' },
-];
-
-const programReportFields = [
-  { name: 'title', label: 'اسم البرنامج', required: true },
-  { name: 'event_date', label: 'تاريخ التنفيذ', type: 'date' },
-  { name: 'target_group', label: 'الفئة المستهدفة' },
-  { name: 'description', label: 'وصف مختصر', type: 'textarea' },
-];
+export const UPLOAD_LABEL = 'رفع ملف جديد';
 
 export const SECTIONS = Object.freeze([
   {
@@ -34,9 +22,8 @@ export const SECTIONS = Object.freeze([
     kind: 'files',
     title: 'تكليف رائدة النشاط في نظام نور',
     short: 'تكليف نظام نور',
-    description: 'حفظ خطاب أو قرار تكليف رائدة النشاط في نظام نور، مع إمكانية الإرفاق والاستعراض والتحديث.',
-    uploadLabel: 'إرفاق خطاب / قرار التكليف',
-    emptyText: 'لم يُرفق خطاب التكليف بعد',
+    description: 'حفظ خطاب أو قرار تكليف رائدة النشاط في نظام نور واستعراضه وتحديثه.',
+    emptyText: 'لم يُرفع خطاب التكليف بعد',
   },
   {
     key: 'leader_record',
@@ -45,8 +32,7 @@ export const SECTIONS = Object.freeze([
     kind: 'files',
     title: 'سجل رائدة النشاط',
     short: 'سجل رائدة النشاط',
-    description: 'سجل منظّم لوثائق رائدة النشاط؛ يمكن رفع عدة ملفات لكل منها عنوان ووصف.',
-    uploadLabel: 'إضافة وثيقة',
+    description: 'مكتبة منظمة لوثائق رائدة النشاط.',
     emptyText: 'لا توجد وثائق في السجل بعد',
   },
   {
@@ -57,8 +43,7 @@ export const SECTIONS = Object.freeze([
     tabs: GRADE_TABS,
     title: 'خطة النشاط الفصلية للبرامج الصفية – الصفوف الأولية والعليا',
     short: 'خطة البرامج الصفية',
-    description: 'خطط البرامج الصفية الفصلية في تبويبين مستقلين؛ لكل تبويب ملفاته الخاصة.',
-    uploadLabel: 'رفع ملف الخطة',
+    description: 'ملفات خطط البرامج الصفية الفصلية في تبويبين مستقلين.',
     emptyText: 'لا توجد ملفات خطة في هذا التبويب بعد',
   },
   {
@@ -69,8 +54,7 @@ export const SECTIONS = Object.freeze([
     tabs: GRADE_TABS,
     title: 'خطة المدرسة للأنشطة اللاصفية – الصفوف الأولية والعليا',
     short: 'خطة الأنشطة اللاصفية',
-    description: 'خطة المدرسة للأنشطة اللاصفية في تبويبين مستقلين؛ لكل تبويب ملفاته الخاصة.',
-    uploadLabel: 'رفع ملف الخطة',
+    description: 'ملفات خطة المدرسة للأنشطة اللاصفية في تبويبين مستقلين.',
     emptyText: 'لا توجد ملفات خطة في هذا التبويب بعد',
   },
   {
@@ -80,15 +64,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'إعلانات البرامج',
     short: 'إعلانات البرامج',
-    description: 'إعلانات البرامج بعنوان ووصف وتاريخ، مع إرفاق صور أو ملفات الإعلان.',
-    recordLabel: 'إعلان',
-    addLabel: 'إضافة إعلان',
-    emptyText: 'لا توجد إعلانات بعد',
-    fields: [
-      { name: 'title', label: 'عنوان الإعلان', required: true },
-      { name: 'event_date', label: 'تاريخ الإعلان', type: 'date' },
-      { name: 'description', label: 'وصف الإعلان', type: 'textarea' },
-    ],
+    description: 'ملفات وصور إعلانات البرامج.',
+    emptyText: 'لا توجد إعلانات مرفوعة بعد',
   },
   {
     key: 'class_reports',
@@ -97,12 +74,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'تقارير البرامج الصفية',
     short: 'تقارير البرامج الصفية',
-    description: 'توثيق البرامج الصفية المنفذة مع إرفاق التقارير والشواهد.',
-    recordLabel: 'تقرير',
-    addLabel: 'إضافة تقرير برنامج صفي',
+    description: 'تقارير البرامج الصفية وشواهدها.',
     emptyText: 'لا توجد تقارير برامج صفية بعد',
-    fields: programReportFields,
-    categories: REPORT_CATEGORIES,
   },
   {
     key: 'extra_reports',
@@ -111,12 +84,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'تقارير البرامج اللاصفية',
     short: 'تقارير البرامج اللاصفية',
-    description: 'توثيق البرامج اللاصفية المنفذة مع إرفاق التقارير والشواهد.',
-    recordLabel: 'تقرير',
-    addLabel: 'إضافة تقرير برنامج لاصفي',
+    description: 'تقارير البرامج اللاصفية وشواهدها.',
     emptyText: 'لا توجد تقارير برامج لاصفية بعد',
-    fields: programReportFields,
-    categories: REPORT_CATEGORIES,
   },
   {
     key: 'parent_reports',
@@ -125,16 +94,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'تقارير تعزيز أولياء الأمور',
     short: 'تعزيز أولياء الأمور',
-    description: 'توثيق مشاركة أولياء الأمور في برامج النشاط مع التقارير والشواهد.',
-    recordLabel: 'تقرير',
-    addLabel: 'إضافة تقرير مشاركة',
+    description: 'تقارير وشواهد مشاركة أولياء الأمور.',
     emptyText: 'لا توجد تقارير مشاركة لأولياء الأمور بعد',
-    fields: [
-      { name: 'title', label: 'العنوان', required: true },
-      { name: 'event_date', label: 'التاريخ', type: 'date' },
-      { name: 'description', label: 'الوصف', type: 'textarea' },
-    ],
-    categories: REPORT_CATEGORIES,
   },
   {
     key: 'student_workshops',
@@ -143,21 +104,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'الورش التدريبية للطالبات',
     short: 'الورش التدريبية',
-    description: 'توثيق الورش التدريبية للطالبات مع إرفاق الملفات والصور والتقارير.',
-    recordLabel: 'ورشة',
-    addLabel: 'إضافة ورشة',
-    emptyText: 'لا توجد ورش تدريبية بعد',
-    fields: [
-      { name: 'title', label: 'اسم الورشة', required: true },
-      { name: 'event_date', label: 'تاريخ التنفيذ', type: 'date' },
-      { name: 'target_group', label: 'الفئة المستهدفة' },
-      { name: 'objective', label: 'الهدف', type: 'textarea' },
-    ],
-    categories: [
-      { key: 'material', label: 'ملف الورشة' },
-      { key: 'photo', label: 'صورة' },
-      { key: 'report', label: 'تقرير' },
-    ],
+    description: 'ملفات وصور وتقارير الورش التدريبية للطالبات.',
+    emptyText: 'لا توجد ملفات ورش تدريبية بعد',
   },
   {
     key: 'student_surveys',
@@ -166,17 +114,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'استطلاع الطالبات والطلاب على برامج ومجالات النشاط',
     short: 'استطلاع الطالبات والطلاب',
-    description: 'استطلاعات الطالبات والطلاب: الاستبانة وتحليل النتائج والمرفقات.',
-    recordLabel: 'استطلاع',
-    addLabel: 'إضافة استطلاع',
-    emptyText: 'لا توجد استطلاعات بعد',
-    fields: [
-      { name: 'title', label: 'عنوان الاستطلاع', required: true },
-      { name: 'event_date', label: 'التاريخ', type: 'date' },
-      { name: 'target_group', label: 'الفئة المستهدفة' },
-      { name: 'description', label: 'ملاحظات / ملخص النتائج', type: 'textarea' },
-    ],
-    categories: SURVEY_CATEGORIES,
+    description: 'الاستبانات وتحليل النتائج والمرفقات.',
+    emptyText: 'لا توجد ملفات استطلاعات بعد',
   },
   {
     key: 'parent_surveys',
@@ -185,17 +124,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'استطلاع ولي الأمر على مجالات النشاط',
     short: 'استطلاع ولي الأمر',
-    description: 'استطلاعات أولياء الأمور على مجالات النشاط ونتائجها وتحليلها.',
-    recordLabel: 'استطلاع',
-    addLabel: 'إضافة استطلاع',
-    emptyText: 'لا توجد استطلاعات لأولياء الأمور بعد',
-    fields: [
-      { name: 'title', label: 'عنوان الاستطلاع', required: true },
-      { name: 'event_date', label: 'التاريخ', type: 'date' },
-      { name: 'target_group', label: 'الفئة المستهدفة' },
-      { name: 'description', label: 'النتائج والتحليل', type: 'textarea' },
-    ],
-    categories: SURVEY_CATEGORIES,
+    description: 'استطلاعات أولياء الأمور ونتائجها وتحليلها.',
+    emptyText: 'لا توجد ملفات استطلاعات لأولياء الأمور بعد',
   },
   {
     key: 'honors',
@@ -204,21 +134,8 @@ export const SECTIONS = Object.freeze([
     kind: 'records',
     title: 'التكريمات',
     short: 'التكريمات',
-    description: 'توثيق التكريمات مع إرفاق الصور والشهادات والملفات.',
-    recordLabel: 'تكريم',
-    addLabel: 'إضافة تكريم',
-    emptyText: 'لا توجد تكريمات مسجلة في السجل الجديد بعد',
-    fields: [
-      { name: 'title', label: 'اسم التكريم', required: true },
-      { name: 'event_date', label: 'التاريخ', type: 'date' },
-      { name: 'honored_group', label: 'الفئة المكرّمة' },
-      { name: 'reason', label: 'سبب التكريم', type: 'textarea' },
-    ],
-    categories: [
-      { key: 'photo', label: 'صورة' },
-      { key: 'certificate', label: 'شهادة' },
-      { key: 'attachment', label: 'ملف' },
-    ],
+    description: 'صور وشهادات وملفات التكريم.',
+    emptyText: 'لا توجد ملفات تكريم مرفوعة بعد',
   },
 ]);
 
@@ -239,10 +156,4 @@ export function getSection(key) {
 
 export function sectionIndex(key) {
   return SECTIONS.findIndex((s) => s.key === key) + 1;
-}
-
-export function categoryLabel(section, key) {
-  if (!key) return '';
-  const c = (section?.categories || []).find((x) => x.key === key);
-  return c ? c.label : '';
 }

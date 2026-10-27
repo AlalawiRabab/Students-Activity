@@ -71,7 +71,8 @@ create extension if not exists "pgcrypto";
 -- kind:
 --   files   → ملفات مباشرة على القسم (sub_key = null, record_id = null)
 --   tabs    → تبويبان مستقلان primary / upper (sub_key إلزامي)
---   records → سجلات (إعلان/تقرير/ورشة...) ولكل سجل مرفقاته (record_id إلزامي)
+--   records → ملفات مباشرة على القسم أيضاً؛ ويقبل كذلك مرفقات سجلات activity_records
+--             القديمة (record_id) إن وُجدت — الواجهة مكتبة ملفات فقط ولا تنشئ سجلات
 -- =====================================================================
 create table if not exists public.activity_sections (
   key text primary key
@@ -230,6 +231,24 @@ begin
   end if;
 end $$;
 
+-- المقطع الثالث من المسار يطابق النطاق: التبويب أو معرّف السجل القديم أو general للملفات المباشرة.
+-- NOT VALID: يُطبَّق على الصفوف الجديدة فقط ولا يفحص/يرفض أي صف قائم.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'section_files_scope_matches'
+      and conrelid = 'public.section_files'::regclass
+  ) then
+    alter table public.section_files
+      add constraint section_files_scope_matches
+      check (
+        split_part(storage_path, '/', 3) = coalesce(sub_key, record_id::text, 'general')
+        and split_part(storage_path, '/', 5) = ''
+      ) not valid;
+  end if;
+end $$;
+
 comment on table public.section_files is
   'ملفات الأقسام: الاسم العربي الأصلي في original_name؛ مفتاح Storage آمن ASCII تحت sections/<section_key>/...';
 
@@ -317,13 +336,12 @@ begin
       if new.sub_key is null or new.record_id is not null then
         raise exception 'ملفات هذا القسم تتطلب تبويباً (الصفوف الأولية / العليا)';
       end if;
-    elsif v_kind = 'records' then
-      if new.record_id is null or new.sub_key is not null then
-        raise exception 'ملفات هذا القسم يجب أن ترتبط بسجل';
-      end if;
     else
-      if new.sub_key is not null or new.record_id is not null then
-        raise exception 'ملفات هذا القسم تُرفق بالقسم مباشرة';
+      if new.sub_key is not null then
+        raise exception 'هذا القسم لا يحتوي تبويبات';
+      end if;
+      if new.record_id is not null and v_kind <> 'records' then
+        raise exception 'ملفات هذا القسم تُرفع على القسم مباشرة';
       end if;
     end if;
 
@@ -359,6 +377,9 @@ revoke all on function public.guard_activity_record() from authenticated;
 revoke all on function public.guard_section_file() from public;
 revoke all on function public.guard_section_file() from anon;
 revoke all on function public.guard_section_file() from authenticated;
+
+comment on function public.guard_section_file() is
+  'الأقسام 1–2 و5–12: ملفات مباشرة (scope = general)؛ 3–4: تبويب primary/upper؛ 5–12 تقبل أيضاً مرفقات سجلات قديمة';
 
 -- =====================================================================
 -- 6) RLS — نفس نمط الجداول الحالية:
