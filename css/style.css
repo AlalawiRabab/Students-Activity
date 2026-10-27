@@ -1304,6 +1304,29 @@ table.data-table {
 
 .file-manager { position: relative; border-radius: var(--radius); }
 
+.fm-hint {
+  margin: -0.4rem 0 1rem;
+  font-size: 0.84rem;
+}
+
+.file-manager .file-card__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.file-card--pending { opacity: 0.8; box-shadow: none; }
+.file-card--pending .file-card__thumb { cursor: progress; }
+
+.chip--legacy {
+  align-self: flex-start;
+  margin-top: 0.2rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: transparent;
+  font-weight: 500;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .file-manager.is-drag {
   outline: 2px dashed var(--primary);
   outline-offset: 6px;

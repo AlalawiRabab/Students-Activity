@@ -94,31 +94,35 @@ where p.id = u.id and u.email = 'admin@example.com';
 
 | # | القسم | الصفحة | المفتاح | النوع |
 |---|-------|--------|---------|-------|
-| 1 | تكليف رائدة النشاط في نظام نور | `noor-assignment.html` | `noor_assignment` | ملفات |
-| 2 | سجل رائدة النشاط | `leader-record.html` | `leader_record` | ملفات |
-| 3 | خطة النشاط الفصلية للبرامج الصفية – الصفوف الأولية والعليا | `class-activity-plan.html` | `class_plan` (+ `primary`/`upper`) | تبويبان |
-| 4 | خطة المدرسة للأنشطة اللاصفية – الصفوف الأولية والعليا | `extracurricular-plan.html` | `extra_plan` (+ `primary`/`upper`) | تبويبان |
-| 5 | إعلانات البرامج | `announcements.html` | `announcements` | سجلات |
-| 6 | تقارير البرامج الصفية | `class-reports.html` | `class_reports` | سجلات |
-| 7 | تقارير البرامج اللاصفية | `extracurricular-reports.html` | `extra_reports` | سجلات |
-| 8 | تقارير تعزيز أولياء الأمور | `parent-reports.html` | `parent_reports` | سجلات |
-| 9 | الورش التدريبية للطالبات | `student-workshops.html` | `student_workshops` | سجلات |
-| 10 | استطلاع الطالبات والطلاب على برامج ومجالات النشاط | `student-surveys.html` | `student_surveys` | سجلات |
-| 11 | استطلاع ولي الأمر على مجالات النشاط | `parent-surveys.html` | `parent_surveys` | سجلات |
-| 12 | التكريمات | `honors-record.html` | `honors` | سجلات + عرض التكريمات السابقة |
+| 1 | تكليف رائدة النشاط في نظام نور | `noor-assignment.html` | `noor_assignment` | مكتبة ملفات |
+| 2 | سجل رائدة النشاط | `leader-record.html` | `leader_record` | مكتبة ملفات |
+| 3 | خطة النشاط الفصلية للبرامج الصفية – الصفوف الأولية والعليا | `class-activity-plan.html` | `class_plan` (+ `primary`/`upper`) | مكتبة ملفات بتبويبين |
+| 4 | خطة المدرسة للأنشطة اللاصفية – الصفوف الأولية والعليا | `extracurricular-plan.html` | `extra_plan` (+ `primary`/`upper`) | مكتبة ملفات بتبويبين |
+| 5 | إعلانات البرامج | `announcements.html` | `announcements` | مكتبة ملفات |
+| 6 | تقارير البرامج الصفية | `class-reports.html` | `class_reports` | مكتبة ملفات |
+| 7 | تقارير البرامج اللاصفية | `extracurricular-reports.html` | `extra_reports` | مكتبة ملفات |
+| 8 | تقارير تعزيز أولياء الأمور | `parent-reports.html` | `parent_reports` | مكتبة ملفات |
+| 9 | الورش التدريبية للطالبات | `student-workshops.html` | `student_workshops` | مكتبة ملفات |
+| 10 | استطلاع الطالبات والطلاب على برامج ومجالات النشاط | `student-surveys.html` | `student_surveys` | مكتبة ملفات |
+| 11 | استطلاع ولي الأمر على مجالات النشاط | `parent-surveys.html` | `parent_surveys` | مكتبة ملفات |
+| 12 | التكريمات | `honors-record.html` | `honors` | مكتبة ملفات + عرض التكريمات السابقة |
 
 - الملفات المدعومة: PDF، Word (doc/docx)، Excel (xls/xlsx)، صور (jpg/png/webp/gif) — حتى 10 م.ب للملف.
-- مفتاح التخزين: `sections/<section_key>/<primary|upper|record_id|general>/<uuid>.<ext>` في الـ bucket الخاص نفسه؛ الاسم العربي الأصلي في `section_files.original_name`.
+- كل قسم مكتبة ملفات بلا نماذج إدخال: زر «رفع ملف جديد» يفتح منتقي الملفات مباشرة (عدة ملفات أو سحب وإفلات)، ثم: استعراض – تحميل – إعادة تسمية – حذف، مع بحث وترتيب (الأحدث أولاً).
+- مفتاح التخزين: `sections/<section_key>/<primary|upper|general>/<uuid>.<ext>` في الـ bucket الخاص نفسه؛ الاسم العربي الأصلي في `section_files.original_name`، والعنوان المعروض (قابل لإعادة التسمية) في `title`.
+- مرفقات السجلات السابقة (`sections/<key>/<record_id>/...` من نسخة سابقة) تبقى وتظهر ضمن مكتبة القسم بعلامة «مرفق سابق».
 - الاستعراض داخل المنصة لـ PDF والصور عبر Signed URL؛ Word/Excel: تحميل أو فتح في تبويب جديد.
 - الصفحات القديمة (التقويمات، البرامج، الجداول، المسابقات، التكريم السابق، المعرض) باقية ببياناتها تحت «أقسام سابقة» في القائمة الجانبية ولوحة التحكم.
 
 ### تفعيل الأقسام (مرة واحدة)
 
 1. افتح **SQL Editor** في مشروع Supabase الحالي.
-2. شغّل استعلامات القراءة فقط في [`migrations/002_verify_readonly.sql`](./migrations/002_verify_readonly.sql) واحفظ نتائجها (قبل).
-3. الصق محتوى [`migrations/002_activity_sections.sql`](./migrations/002_activity_sections.sql) كاملاً، راجعه، ثم **Run**. يبدأ بفحص مسبق يتوقف برسالة واضحة إن نقصت دوال `database.sql` أو الـ bucket.
-4. أعد تشغيل استعلامات التحقق وقارن (بعد).
-5. الملف إضافي فقط وآمن لإعادة التشغيل: ينشئ `activity_sections` و`activity_records` و`section_files` مع RLS، ويضيف أنواع Word/Excel/GIF إلى الـ bucket، ويضيف سياسة رفع للمسار `sections/` وسياسة تقييدية تمنع نقل/الكتابة فوق كائناته — دون تعديل السياسات أو البيانات الحالية.
+2. شغّل استعلامات القراءة فقط في [`migrations/002_verify_readonly.sql`](./migrations/002_verify_readonly.sql) واحفظ نتائجها (قبل). الاستعلام الأول يحدد السيناريو:
+   - **A — 002 لم يُنفَّذ:** شغّل [`002_activity_sections.sql`](./migrations/002_activity_sections.sql) ثم [`003_sections_direct_files.sql`](./migrations/003_sections_direct_files.sql) (الثاني لن يغيّر شيئاً لكنه آمن).
+   - **B — 002 قديم منفّذ:** شغّل `003_sections_direct_files.sql` فقط.
+   - **C — محدّث:** لا يلزم شيء.
+3. أعد تشغيل استعلامات التحقق وقارن (بعد).
+4. الملفات إضافية فقط وآمنة لإعادة التشغيل، وتبدأ بفحص مسبق يتوقف برسالة عربية واضحة إن نقص متطلب. 002 ينشئ `activity_sections` و`activity_records` و`section_files` مع RLS، ويضيف أنواع Word/Excel/GIF إلى الـ bucket، وسياسة رفع للمسار `sections/` وسياسة تقييدية تمنع نقل/الكتابة فوق كائناته. 003 يسمح بالرفع المباشر في الأقسام 5–12 ويضيف قيد مطابقة النطاق — دون حذف أي بيانات أو تعديل السياسات الحالية.
 
 ---
 
@@ -211,7 +215,7 @@ CSP يسمح فقط بـ `cdn.jsdelivr.net` و`*.supabase.co` وGoogle Fonts —
 - [ ] إعدادات المنصة (admin فقط)
 - [ ] تغيير كلمة المرور عبر Auth
 - [ ] بحث / تصفية / ترتيب / Excel / طباعة
-- [ ] الأقسام الـ 12: رفع / استعراض / تحميل / تعديل / حذف (بعد تشغيل migration 002)
+- [ ] الأقسام الـ 12: رفع مباشر / استعراض / تحميل / إعادة تسمية / حذف (بعد تشغيل 002 و/أو 003)
 - [ ] تبويبا الصفوف الأولية والعليا مستقلان في القسمين 3 و4
 - [ ] عدد الملفات لكل قسم في لوحة التحكم
 - [ ] Dark Mode

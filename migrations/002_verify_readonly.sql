@@ -1,7 +1,18 @@
 -- =====================================================================
 -- استعلامات تحقق للقراءة فقط (SELECT فقط — لا تعدّل أي شيء)
--- شغّل كل قسم على حدة في Supabase SQL Editor: (أ) قبل تنفيذ 002 و(ب) بعده.
+-- شغّل كل قسم على حدة في Supabase SQL Editor: قبل التنفيذ وبعده (002 / 003).
 -- =====================================================================
+
+-- 0) ما الملف المطلوب تشغيله؟
+select case
+  when to_regclass('public.section_files') is null
+    then 'A: 002 غير منفّذ — شغّل 002 ثم 003 (003 اختياري ولن يغيّر شيئاً)'
+  when pg_get_functiondef(to_regprocedure('public.guard_section_file()')) like '%يجب أن ترتبط بسجل%'
+    then 'B: 002 قديم منفّذ — شغّل 003 فقط'
+  when not exists (select 1 from pg_constraint where conname = 'section_files_scope_matches')
+    then 'B: 002 منفّذ دون قيد النطاق — شغّل 003 فقط'
+  else 'C: محدّث — لا يلزم شيء (تشغيل 003 آمن)'
+end as scenario;
 
 -- 1) الدوال المطلوبة: التوقيع، نوع الإرجاع، SECURITY DEFINER، search_path
 select p.oid::regprocedure as function,
@@ -85,3 +96,24 @@ select
   (select count(*) from public.gallery) as gallery,
   (select count(*) from public.schedules) as schedules,
   (select count(*) from storage.objects where bucket_id = 'student-activity-files') as storage_objects;
+
+-- 10) بعد 003: قيد النطاق موجود (convalidated = false متوقع لأنه NOT VALID)
+select conname, convalidated, pg_get_constraintdef(oid) as definition
+from pg_constraint
+where conrelid = to_regclass('public.section_files')
+  and conname in ('section_files_scope_matches', 'section_files_path_prefix', 'section_files_record_fk');
+
+-- 11) بعد 002/003: توزيع الملفات (ملفات مباشرة مقابل مرفقات سجلات سابقة) لكل قسم
+select section_key,
+       count(*) filter (where record_id is null) as direct_files,
+       count(*) filter (where record_id is not null) as legacy_record_files,
+       count(*) as total
+from public.section_files
+group by section_key
+order by section_key;
+
+-- 12) صفوف قديمة لا تطابق قاعدة النطاق (المتوقع 0 — لا تُرفض لأنها NOT VALID)
+select id, section_key, sub_key, record_id, storage_path
+from public.section_files
+where split_part(storage_path, '/', 3) <> coalesce(sub_key, record_id::text, 'general')
+   or split_part(storage_path, '/', 5) <> '';

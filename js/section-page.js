@@ -1,25 +1,17 @@
 /**
- * section-page.js — صفحة قسم موحّدة لأقسام السجل الإلكتروني لرائدة النشاط
+ * section-page.js — صفحة قسم موحّدة: مكتبة ملفات لكل قسم من الأقسام الـ 12
  * كل صفحة HTML تحدد القسم عبر <body data-section="...">
  */
 import { bootProtectedPage } from './app.js';
-import { getSection, sectionIndex, SECTIONS } from './sections-config.js';
+import { getSection, sectionIndex, SECTIONS, UPLOAD_LABEL } from './sections-config.js';
 import {
   createFileManager,
-  listSectionFiles,
-  listAllSectionFiles,
-  deleteSectionFiles,
-  getThumbUrls,
   openFilePreview,
   downloadSectionFile,
-  isMissingSchemaError,
-  renderSchemaNotice,
   canPreviewInline,
 } from './file-manager.js';
-import { insertRow, updateRow, deleteRow, listRows, fetchChildren } from './supabase-service.js';
-import { createEl, clearElement, formatDate, arabicIncludes, recipientTypeLabel, mimeToFileType } from './utils.js';
-import { openModal, confirmDialog, setButtonLoading, field } from './ui.js';
-import { validateRequired, validateLength } from './validators.js';
+import { listRows, fetchChildren } from './supabase-service.js';
+import { createEl, formatDate, recipientTypeLabel, mimeToFileType } from './utils.js';
 import { icon } from './icons.js';
 
 const section = getSection(document.body.dataset.section);
@@ -33,18 +25,17 @@ if (!section) {
     const body = createEl('div', { className: 'section-body' });
     root.appendChild(body);
 
-    if (section.kind === 'files') {
+    if (section.kind === 'tabs') {
+      renderTabs(ctx, body);
+    } else {
       createFileManager({
         ctx,
         container: body,
         sectionKey: section.key,
-        uploadLabel: section.uploadLabel,
+        includeRecordFiles: section.kind === 'records',
+        uploadLabel: UPLOAD_LABEL,
         emptyText: section.emptyText,
       });
-    } else if (section.kind === 'tabs') {
-      renderTabs(ctx, body);
-    } else {
-      await renderRecords(ctx, body);
       if (section.key === 'honors') await renderLegacyHonors(ctx, root);
     }
   });
@@ -138,7 +129,7 @@ function renderTabs(ctx, body) {
         container: s.panel,
         sectionKey: section.key,
         subKey: key,
-        uploadLabel: `${section.uploadLabel} (${section.tabs.find((t) => t.key === key).label})`,
+        uploadLabel: `${UPLOAD_LABEL} (${section.tabs.find((t) => t.key === key).label})`,
         emptyText: section.emptyText,
         onChange: (rows) => {
           s.btn.querySelector('.seg-tab__count').textContent = String(rows.length);
@@ -149,336 +140,6 @@ function renderTabs(ctx, body) {
   }
 
   activate(initial);
-}
-
-// ---------------------------------------------------------------------
-// Records (إعلانات، تقارير، ورش، استطلاعات، تكريمات)
-// ---------------------------------------------------------------------
-async function renderRecords(ctx, body) {
-  let records = [];
-  let files = [];
-
-  const toolbar = createEl('div', { className: 'fm-toolbar no-print' });
-  const searchWrap = createEl('label', { className: 'search-box' });
-  const searchInput = createEl('input', {
-    type: 'search',
-    className: 'input',
-    placeholder: 'ابحثي في العناوين وأسماء الملفات...',
-    'aria-label': 'بحث',
-  });
-  searchWrap.append(icon('search', { size: 18 }), searchInput);
-  const sortSel = createEl('select', { className: 'select fm-sort', 'aria-label': 'ترتيب السجلات' }, [
-    createEl('option', { value: 'newest', textContent: 'الأحدث أولاً' }),
-    createEl('option', { value: 'oldest', textContent: 'الأقدم أولاً' }),
-    createEl('option', { value: 'name', textContent: 'حسب العنوان' }),
-  ]);
-  const countEl = createEl('span', { className: 'fm-count muted' });
-  toolbar.append(searchWrap, sortSel, countEl);
-  if (ctx.canEdit) {
-    const addBtn = createEl('button', { type: 'button', className: 'btn btn--primary btn--upload' }, [
-      icon('plus', { size: 18 }),
-      createEl('span', { textContent: section.addLabel }),
-    ]);
-    addBtn.addEventListener('click', () => openRecordForm());
-    toolbar.appendChild(addBtn);
-  }
-  const grid = createEl('div', { className: 'record-grid', 'aria-live': 'polite' });
-  body.append(toolbar, grid);
-
-  searchInput.addEventListener('input', render);
-  sortSel.addEventListener('change', render);
-
-  function filesOf(recordId) {
-    return files.filter((f) => f.record_id === recordId);
-  }
-
-  function visible() {
-    const q = searchInput.value.trim();
-    const list = records.filter((r) => {
-      if (!q) return true;
-      const texts = [r.title, r.description, r.target_group, r.objective, r.reason, r.honored_group];
-      if (texts.some((t) => arabicIncludes(t, q))) return true;
-      return filesOf(r.id).some((f) => arabicIncludes(f.title, q) || arabicIncludes(f.original_name, q));
-    });
-    const key = sortSel.value;
-    if (key === 'name') {
-      list.sort((a, b) => String(a.title).localeCompare(String(b.title), 'ar'));
-    } else {
-      const dir = key === 'oldest' ? 1 : -1;
-      list.sort((a, b) => dir * (new Date(a.created_at) - new Date(b.created_at)));
-    }
-    return list;
-  }
-
-  async function load() {
-    clearElement(grid);
-    for (let i = 0; i < 3; i += 1) {
-      grid.appendChild(createEl('div', { className: 'record-card record-card--skeleton skeleton' }));
-    }
-    try {
-      const [rec, fl] = await Promise.all([
-        listRows('activity_records', {
-          filters: [{ column: 'section_key', op: 'eq', value: section.key }],
-          orderBy: 'created_at',
-          ascending: false,
-          from: 0,
-          to: 499,
-        }),
-        listAllSectionFiles(section.key),
-      ]);
-      records = rec.data;
-      files = fl;
-      render();
-    } catch (err) {
-      if (isMissingSchemaError(err)) renderSchemaNotice(grid);
-      else {
-        clearElement(grid);
-        ctx.handleError(err, 'تعذّر تحميل السجلات');
-      }
-    }
-  }
-
-  function render() {
-    const list = visible();
-    const q = searchInput.value.trim();
-    countEl.textContent = q ? `${list.length} من ${records.length}` : `${records.length} ${section.recordLabel}`;
-    clearElement(grid);
-    if (!list.length) {
-      const box = createEl('div', { className: 'fm-empty' }, [
-        createEl('div', { className: 'fm-empty__icon' }, [icon(q ? 'search' : section.icon, { size: 34 })]),
-        createEl('strong', { textContent: q ? 'لا توجد نتائج مطابقة' : section.emptyText }),
-      ]);
-      if (!q && ctx.canEdit) {
-        const b = createEl('button', { type: 'button', className: 'btn btn--primary' }, [
-          icon('plus', { size: 18 }),
-          createEl('span', { textContent: section.addLabel }),
-        ]);
-        b.addEventListener('click', () => openRecordForm());
-        box.appendChild(b);
-      }
-      grid.appendChild(box);
-      return;
-    }
-    list.forEach((r) => grid.appendChild(buildRecordCard(r)));
-    const covers = list
-      .map((r) => filesOf(r.id).find((f) => f.file_kind === 'image'))
-      .filter(Boolean)
-      .map((f) => f.storage_path);
-    if (covers.length) {
-      getThumbUrls(covers).then((urls) => {
-        grid.querySelectorAll('[data-cover-path]').forEach((el) => {
-          const url = urls[el.dataset.coverPath];
-          if (!url) return;
-          const img = createEl('img', { alt: '', className: 'record-card__img', src: url });
-          img.addEventListener('load', () => {
-            clearElement(el);
-            el.appendChild(img);
-          });
-        });
-      });
-    }
-  }
-
-  function fieldChips(r) {
-    const chips = [];
-    if (r.event_date) chips.push(['calendarSmall', formatDate(r.event_date)]);
-    if (r.target_group) chips.push(['users', r.target_group]);
-    if (r.honored_group) chips.push(['award', r.honored_group]);
-    return chips.map(([ic, text]) =>
-      createEl('span', { className: 'meta-chip' }, [icon(ic, { size: 15 }), createEl('span', { textContent: text })])
-    );
-  }
-
-  function buildRecordCard(r) {
-    const rf = filesOf(r.id);
-    const cover = rf.find((f) => f.file_kind === 'image');
-    const coverEl = createEl('button', {
-      type: 'button',
-      className: 'record-card__cover',
-      'aria-label': `فتح ${r.title}`,
-      dataset: cover ? { coverPath: cover.storage_path } : {},
-    }, [icon(section.icon, { size: 36 })]);
-    coverEl.addEventListener('click', () => openDetails(r));
-
-    const summary = r.description || r.objective || r.reason || '';
-    const body = createEl('div', { className: 'record-card__body' }, [
-      createEl('h4', { className: 'record-card__title', textContent: r.title }),
-      createEl('div', { className: 'record-card__meta' }, fieldChips(r)),
-      summary ? createEl('p', { className: 'record-card__desc', textContent: summary }) : null,
-      createEl('span', { className: 'meta-chip meta-chip--files' }, [
-        icon('paperclip', { size: 15 }),
-        createEl('span', { textContent: rf.length ? `${rf.length} مرفق` : 'لا توجد مرفقات' }),
-      ]),
-    ]);
-
-    const actions = createEl('div', { className: 'file-card__actions' });
-    const act = (label, ic, fn, cls = '') => {
-      const b = createEl('button', { type: 'button', className: `fc-btn ${cls}` }, [
-        icon(ic, { size: 17 }),
-        createEl('span', { textContent: label }),
-      ]);
-      b.addEventListener('click', fn);
-      return b;
-    };
-    actions.appendChild(act('المرفقات', 'folder', () => openDetails(r), 'fc-btn--primary'));
-    if (ctx.canEdit) {
-      actions.append(
-        act('تعديل', 'edit', () => openRecordForm(r)),
-        act('حذف', 'trash', () => removeRecord(r), 'fc-btn--danger')
-      );
-    }
-    return createEl('article', { className: 'record-card' }, [coverEl, body, actions]);
-  }
-
-  function openRecordForm(row = null) {
-    const form = createEl('form', { className: 'form-grid' });
-    const inputs = {};
-    section.fields.forEach((f) => {
-      let el;
-      if (f.type === 'textarea') {
-        el = createEl('textarea', { className: 'textarea', maxlength: '2000' });
-        el.value = row?.[f.name] || '';
-      } else {
-        el = createEl('input', {
-          className: 'input',
-          type: f.type === 'date' ? 'date' : 'text',
-          maxlength: f.type === 'date' ? null : '200',
-          value: row?.[f.name] || '',
-        });
-      }
-      inputs[f.name] = el;
-      form.appendChild(field(f.required ? `${f.label} *` : f.label, el));
-    });
-    if (!row) {
-      form.appendChild(
-        createEl('p', { className: 'muted', textContent: 'بعد الحفظ ستُفتح نافذة السجل لإرفاق الملفات مباشرة.' })
-      );
-    }
-    const saveBtn = createEl('button', { type: 'submit', className: 'btn btn--primary', textContent: 'حفظ' });
-    form.appendChild(createEl('div', { className: 'modal__actions' }, [saveBtn]));
-    const { close } = openModal({
-      title: row ? `تعديل ${section.recordLabel}` : section.addLabel,
-      contentNode: form,
-    });
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const titleField = section.fields.find((f) => f.name === 'title');
-      const err =
-        validateRequired(inputs.title.value, titleField.label) ||
-        validateLength(inputs.title.value, titleField.label, 1, 200);
-      if (err) {
-        ctx.showToast(err, 'error');
-        return;
-      }
-      const payload = {};
-      section.fields.forEach((f) => {
-        const v = String(inputs[f.name].value || '').trim();
-        payload[f.name] = v || null;
-      });
-      setButtonLoading(saveBtn, true);
-      try {
-        if (row) {
-          const updated = await updateRow('activity_records', row.id, payload, 'activity_records');
-          records = records.map((x) => (x.id === updated.id ? updated : x));
-          ctx.showToast('تم حفظ التعديلات', 'success');
-          close();
-          render();
-        } else {
-          const created = await insertRow(
-            'activity_records',
-            { ...payload, section_key: section.key },
-            'activity_records'
-          );
-          records = [created, ...records];
-          ctx.showToast('تم الحفظ — يمكنك الآن إرفاق الملفات', 'success');
-          close();
-          render();
-          openDetails(created);
-        }
-      } catch (error) {
-        ctx.handleError(error);
-      } finally {
-        setButtonLoading(saveBtn, false);
-      }
-    });
-  }
-
-  function openDetails(r) {
-    const wrap = createEl('div', { className: 'record-details' });
-    const dl = createEl('dl', { className: 'record-details__fields' });
-    section.fields.forEach((f) => {
-      if (f.name === 'title') return;
-      const v = r[f.name];
-      dl.append(
-        createEl('dt', { textContent: f.label }),
-        createEl('dd', { textContent: v ? (f.type === 'date' ? formatDate(v) : v) : '—' })
-      );
-    });
-    wrap.appendChild(dl);
-    const filesBox = createEl('div', { className: 'record-details__files' });
-    wrap.append(createEl('h3', { className: 'section__title', textContent: 'المرفقات' }), filesBox);
-    const { modal } = openModal({ title: r.title, contentNode: wrap });
-    modal.classList.add('modal--xl');
-
-    createFileManager({
-      ctx,
-      container: filesBox,
-      sectionKey: section.key,
-      recordId: r.id,
-      categories: section.categories || [],
-      uploadLabel: 'إرفاق ملفات',
-      emptyText: 'لا توجد مرفقات لهذا السجل بعد',
-      onChange: (rows) => {
-        files = [...files.filter((f) => f.record_id !== r.id), ...rows];
-        render();
-      },
-    });
-  }
-
-  async function removeRecord(r) {
-    const rf = filesOf(r.id);
-    const ok = await confirmDialog({
-      title: `حذف ${section.recordLabel}`,
-      message: `سيتم حذف «${r.title}»${rf.length ? ` مع ${rf.length} مرفق من التخزين` : ''} نهائياً ولا يمكن التراجع. هل تريدين المتابعة؟`,
-      confirmText: 'نعم، احذف',
-      cancelText: 'تراجع',
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      // قائمة حديثة من قاعدة البيانات (قد يكون مستخدم آخر أرفق ملفات بعد تحميل الصفحة)
-      const fresh = await listSectionFiles({ sectionKey: section.key, recordId: r.id });
-      try {
-        await deleteSectionFiles(fresh);
-      } catch (err) {
-        const gone = new Set((err.deleted || []).map((f) => f.id));
-        files = files.filter((f) => !gone.has(f.id));
-        render();
-        ctx.showToast(`${err.message} — لم يُحذف السجل حتى لا تبقى ملفات بلا سجل`, 'error');
-        return;
-      }
-      files = files.filter((f) => f.record_id !== r.id);
-      try {
-        await deleteRow('activity_records', r.id, 'activity_records');
-      } catch (err) {
-        // 23001 restrict_violation (ON DELETE RESTRICT) / 23503 foreign_key_violation
-        if (err?.code === '23001' || err?.code === '23503') {
-          ctx.showToast('أُضيفت مرفقات جديدة لهذا السجل أثناء الحذف؛ حدّثي الصفحة ثم أعيدي المحاولة', 'error');
-          return;
-        }
-        throw err;
-      }
-      records = records.filter((x) => x.id !== r.id);
-      ctx.showToast('تم الحذف', 'success');
-      render();
-    } catch (err) {
-      render();
-      ctx.handleError(err);
-    }
-  }
-
-  await load();
 }
 
 // ---------------------------------------------------------------------
