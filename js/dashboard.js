@@ -2,8 +2,8 @@
  * dashboard.js — لوحة التحكم: أقسام السجل الإلكتروني الـ 12 بالترتيب مع عدد الملفات
  */
 import { bootProtectedPage } from './app.js';
-import { countRows } from './supabase-service.js';
-import { SECTIONS, LEGACY_PAGES } from './sections-config.js';
+import { getSupabase } from './supabase-client.js';
+import { SECTIONS, PLATFORM_PAGES } from './sections-config.js';
 import { fetchSectionFileCounts, isMissingSchemaError, renderSchemaNotice } from './file-manager.js';
 import { createEl, logDev } from './utils.js';
 import { icon } from './icons.js';
@@ -68,23 +68,32 @@ bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
   });
   root.appendChild(grid);
 
-  const legacy = createEl('section', { className: 'section legacy-links' }, [
-    createEl('h3', { className: 'section__title' }, [
-      icon('archive', { size: 18 }),
-      createEl('span', { textContent: ' أقسام سابقة (بياناتها محفوظة كما هي)' }),
-    ]),
+  const pendingEl = createEl('span', { className: 'platform-link__badge', hidden: true });
+  const platform = createEl('section', { className: 'section platform-links' }, [
+    createEl('h3', { className: 'section__title', textContent: 'أقسام المنصة' }),
     createEl(
       'div',
-      { className: 'legacy-links__grid' },
-      LEGACY_PAGES.map((p) =>
-        createEl('a', { href: p.href, className: 'legacy-link' }, [
-          icon(p.icon, { size: 18 }),
-          createEl('span', { textContent: p.label }),
+      { className: 'platform-links__grid' },
+      PLATFORM_PAGES.map((p) =>
+        createEl('a', { href: p.href, className: 'platform-link' }, [
+          createEl('span', { className: 'platform-link__icon' }, [icon(p.icon, { size: 22 })]),
+          createEl('span', { className: 'platform-link__label', textContent: p.label }),
+          p.key === 'parents' ? pendingEl : null,
         ])
       )
     ),
   ]);
-  root.appendChild(legacy);
+  root.appendChild(platform);
+
+  getSupabase()
+    .from('parent_posts')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending')
+    .then(({ count, error }) => {
+      if (error || !count) return;
+      pendingEl.textContent = `${count} بانتظار المراجعة`;
+      pendingEl.hidden = false;
+    });
 
   let counts = null;
   try {
@@ -95,30 +104,22 @@ bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
     else ctx.handleError(err, 'تعذّر تحميل عدد الملفات');
   }
 
-  let legacyHonorFiles = 0;
-  try {
-    legacyHonorFiles = await countRows('honor_files');
-  } catch (err) {
-    logDev(err);
-  }
-
   let total = 0;
   SECTIONS.forEach((s) => {
     const el = countEls[s.key];
     el.classList.remove('is-loading');
     if (!counts) {
-      el.textContent = s.key === 'honors' && legacyHonorFiles ? String(legacyHonorFiles) : '—';
+      el.textContent = '—';
       return;
     }
-    let n = counts[s.key] || 0;
-    if (s.key === 'honors') n += legacyHonorFiles;
+    const n = counts[s.key] || 0;
     total += n;
     el.textContent = String(n);
     el.closest('.section-card').classList.toggle('is-empty', n === 0);
   });
 
   if (counts) {
-    const filled = SECTIONS.filter((s) => (counts[s.key] || 0) + (s.key === 'honors' ? legacyHonorFiles : 0) > 0).length;
+    const filled = SECTIONS.filter((s) => (counts[s.key] || 0) > 0).length;
     summary.append(
       createEl('div', { className: 'stat-card' }, [
         createEl('div', { className: 'stat-card__label', textContent: 'إجمالي الملفات في السجل' }),

@@ -71,6 +71,31 @@ export async function removeStorageObjects(paths) {
   return { ok: true, failed: [] };
 }
 
+/**
+ * حذف كائنات مع التحقق: remove لا يُرجع خطأ لما رفضته السياسة أو لما لم يوجد أصلاً،
+ * فيُتحقق من بقاء ما لم يُرجعه. يرمي خطأً إن بقي أي كائن.
+ */
+export async function removeStorageVerified(bucket, paths) {
+  const list = (paths || []).filter(Boolean);
+  if (!list.length) return;
+  const sb = getSupabase();
+  const { data, error } = await sb.storage.from(bucket).remove(list);
+  if (error) {
+    logDev('removeStorageVerified', error);
+    throw new Error('تعذّر حذف الملفات من التخزين، لم يُحذف شيء');
+  }
+  const removed = new Set((data || []).map((o) => o.name));
+  for (const p of list.filter((x) => !removed.has(x))) {
+    const i = p.lastIndexOf('/');
+    const { data: found, error: listErr } = await sb.storage
+      .from(bucket)
+      .list(p.slice(0, i), { search: p.slice(i + 1), limit: 5 });
+    if (listErr || (found || []).some((o) => o.name === p.slice(i + 1))) {
+      throw new Error('تعذّر حذف بعض الملفات من التخزين، لم يُحذف شيء');
+    }
+  }
+}
+
 export async function createSignedUrl(path, expiresIn = SIGNED_URL_EXPIRES_IN) {
   if (!path) throw new Error('مسار الملف غير موجود');
   const sb = getSupabase();

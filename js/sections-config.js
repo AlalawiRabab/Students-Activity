@@ -139,15 +139,11 @@ export const SECTIONS = Object.freeze([
   },
 ]);
 
-/** الصفحات القديمة: تبقى متاحة بكامل بياناتها تحت «أقسام سابقة» */
-export const LEGACY_PAGES = Object.freeze([
-  { href: './elementary-calendar.html', label: 'تقويم خطة الصفوف الأولية', icon: 'calendarSmall' },
-  { href: './upper-calendar.html', label: 'تقويم خطة الصفوف العليا', icon: 'calendarSmall' },
-  { href: './programs.html', label: 'البرامج والأنشطة', icon: 'layers' },
-  { href: './schedule.html', label: 'جدول حصص النشاط', icon: 'calendar' },
-  { href: './competitions.html', label: 'المسابقات', icon: 'award' },
-  { href: './honors.html', label: 'التكريم (السجل السابق)', icon: 'award' },
-  { href: './gallery.html', label: 'معرض النشاط', icon: 'image' },
+/** أقسام مستقلة في القائمة الرئيسية خارج السجل الإلكتروني */
+export const PLATFORM_PAGES = Object.freeze([
+  { key: 'gallery', href: './gallery.html', label: 'معرض النشاط', icon: 'image' },
+  { key: 'competitions', href: './competitions.html', label: 'المسابقات', icon: 'trophy' },
+  { key: 'parents', href: './parents-eyes-admin.html', label: 'بعيون أهالينا', icon: 'heart' },
 ]);
 
 export function getSection(key) {

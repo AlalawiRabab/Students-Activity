@@ -21,6 +21,9 @@ const BACKUP_TABLES = [
   'activity_sections',
   'activity_records',
   'section_files',
+  'parent_events',
+  'parent_posts',
+  'parent_post_images',
 ];
 
 const FORBIDDEN_IMPORT_TABLES = new Set(['profiles', 'audit_logs']);

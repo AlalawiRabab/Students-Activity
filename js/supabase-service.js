@@ -38,6 +38,28 @@ export async function fetchSettings() {
   );
 }
 
+const DEFAULT_SETTINGS = Object.freeze({
+  platform_name: 'منصة النشاط الطلابي',
+  leader_name: 'إيمان الرحيلي',
+});
+
+/** اسم المنصة ورائدة النشاط للواجهة العامة (RPC عامة من migrations/004) — لا ترمي خطأ */
+export async function fetchPublicSettings() {
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb.rpc('get_public_settings');
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      platform_name: row?.platform_name || DEFAULT_SETTINGS.platform_name,
+      leader_name: row?.leader_name || DEFAULT_SETTINGS.leader_name,
+    };
+  } catch (err) {
+    logDev('public settings', err);
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
 export async function updateSettings(platformName, leaderName, userId) {
   const sb = getSupabase();
   const { data, error } = await sb

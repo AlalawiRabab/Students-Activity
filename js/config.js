@@ -66,6 +66,44 @@ export const SECTION_FILE_TYPES = Object.freeze({
   },
 });
 
+/** ملفات المسابقات (migrations/004): PDF / صور / Word / PowerPoint — حتى 10 م.ب */
+export const COMPETITION_FILE_MAX_SIZE = 10 * 1024 * 1024;
+export const COMPETITION_FILE_TYPES = Object.freeze({
+  pdf: SECTION_FILE_TYPES.pdf,
+  jpg: SECTION_FILE_TYPES.jpg,
+  jpeg: SECTION_FILE_TYPES.jpeg,
+  png: SECTION_FILE_TYPES.png,
+  webp: SECTION_FILE_TYPES.webp,
+  gif: SECTION_FILE_TYPES.gif,
+  doc: SECTION_FILE_TYPES.doc,
+  docx: SECTION_FILE_TYPES.docx,
+  ppt: {
+    mime: 'application/vnd.ms-powerpoint',
+    accept: ['application/vnd.ms-powerpoint', 'application/octet-stream'],
+    kind: 'powerpoint',
+  },
+  pptx: {
+    mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    accept: [
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/octet-stream',
+      'application/zip',
+    ],
+    kind: 'powerpoint',
+  },
+});
+
+/** «بعيون أهالينا» (migrations/004) — bucket خاص؛ القراءة العامة للمعتمد فقط عبر RLS */
+export const PARENTS_BUCKET = 'parents-eyes';
+export const PARENT_SUBMIT_FUNCTION = 'parent-submit';
+export const PARENT_MAX_IMAGES = 5;
+export const PARENT_MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+export const PARENT_IMAGE_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/webp']);
+
+/** PDF.js لصور الصفحة الأولى في بطاقات PDF (نسخة legacy للمتصفحات الأقدم) */
+export const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/';
+export const PDFJS_ASSETS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/';
+
 export const PAGE_SIZE = 20;
 
 /** اسم Edge Function لتسجيل الدخول باسم المستخدم */

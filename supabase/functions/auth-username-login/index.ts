@@ -15,6 +15,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 /** Origin فقط (بدون مسار). GitHub Pages تحت /Students-Activity/ يبقى alalawirabab.github.io */
 const ALLOWED_ORIGINS = new Set([
+  'https://activity.albian127.net',
   'https://alalawirabab.github.io',
   'http://localhost:5500',
   'http://127.0.0.1:5500',

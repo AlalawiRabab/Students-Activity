@@ -2,9 +2,10 @@
  * ui.js — Toast, Modal, Layout, Theme
  */
 import { createEl, clearElement, logDev } from './utils.js';
-import { canEdit, isAdmin, logout } from './auth.js';
+import { canEdit, isAdmin, isFeatureManager, logout } from './auth.js';
 import { userMessageFromError } from './supabase-service.js';
-import { SECTIONS, LEGACY_PAGES } from './sections-config.js';
+import { SECTIONS, PLATFORM_PAGES } from './sections-config.js';
+import { getSupabase } from './supabase-client.js';
 import { icon } from './icons.js';
 
 const THEME_KEY = 'sap-theme';
@@ -243,18 +244,16 @@ function buildNav() {
     );
   });
 
-  const legacyActive = LEGACY_PAGES.some((p) => p.href.replace('./', '').toLowerCase() === activeFile);
-  const legacy = createEl('details', { className: 'nav-legacy', open: legacyActive || null });
-  legacy.appendChild(
-    createEl('summary', { className: 'nav-group__label nav-group__label--toggle' }, [
-      icon('archive', { size: 16 }),
-      createEl('span', { textContent: 'أقسام سابقة' }),
-    ])
-  );
-  LEGACY_PAGES.forEach((p) => legacy.appendChild(navLink(p.href, p.label, p.icon, activeFile)));
-  nav.appendChild(legacy);
+  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'أقسام المنصة' }));
+  PLATFORM_PAGES.forEach((p) => {
+    const badge = p.key === 'parents'
+      ? createEl('span', { className: 'nav-link__badge', id: 'nav-parents-pending', hidden: true })
+      : null;
+    nav.appendChild(navLink(p.href, p.label, p.icon, activeFile, badge));
+  });
 
   nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'عام' }));
+  nav.appendChild(navLink('./index.html', 'الواجهة العامة', 'globe', activeFile));
   nav.appendChild(navLink('./settings.html', 'الإعدادات', 'settings', activeFile));
 
   nav.addEventListener('click', (e) => {
@@ -377,6 +376,8 @@ export function mountShell({
   main.append(header, content);
   app.append(sidebar, main, backdrop);
 
+  if (canEdit(profile)) refreshParentsPendingBadge();
+
   return {
     content,
     canEdit: canEdit(profile),
@@ -384,6 +385,25 @@ export function mountShell({
     profile,
     settings,
   };
+}
+
+/** عدد مشاركات «بعيون أهالينا» المنتظرة بجانب الرابط (يتجاهل الخطأ قبل تشغيل 004) */
+export async function refreshParentsPendingBadge() {
+  const badge = document.getElementById('nav-parents-pending');
+  if (!badge || !(await isFeatureManager())) return;
+  try {
+    const { count, error } = await getSupabase()
+      .from('parent_posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending');
+    if (error) throw error;
+    badge.textContent = String(count || 0);
+    badge.hidden = !count;
+    badge.title = `${count || 0} مشاركة بانتظار المراجعة`;
+  } catch (err) {
+    logDev('pending badge', err);
+    badge.hidden = true;
+  }
 }
 
 function roleLabel(role) {
