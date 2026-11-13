@@ -18,6 +18,7 @@ import {
 } from './utils.js';
 import { openModal, confirmDialog, setButtonLoading, field, showToast, handleError } from './ui.js';
 import { icon } from './icons.js';
+import { attachPdfThumb } from './pdf-thumbs.js';
 
 export const FILE_ACCEPT =
   '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.webp,.gif,application/pdf,image/*,' +
@@ -32,6 +33,7 @@ const KIND_META = {
   image: { label: 'صورة', badge: 'IMG', icon: 'image' },
   word: { label: 'Word', badge: 'DOC', icon: 'file' },
   excel: { label: 'Excel', badge: 'XLS', icon: 'file' },
+  powerpoint: { label: 'PowerPoint', badge: 'PPT', icon: 'presentation' },
 };
 
 export const SORT_OPTIONS = Object.freeze([
@@ -379,7 +381,21 @@ export async function openInNewTab(row) {
 // UI: preview / edit / delete
 // ---------------------------------------------------------------------
 
-function kindTile(kind, size = 34) {
+/** مفتاح التخزين المؤقت لمعاينة PDF (مسارات التخزين ثابتة وفريدة بعد الرفع) */
+export function pdfThumbKey(row) {
+  return `${row.storage_path}|${row.file_size || 0}`;
+}
+
+/** صورة الصفحة الأولى داخل حاوية بطاقة PDF؛ الأيقونة الحالية تبقى بديلاً عند التعذّر */
+export function attachPdfPreview(thumb, row) {
+  attachPdfThumb(thumb, {
+    key: pdfThumbKey(row),
+    getUrl: () => getSignedUrl(row.storage_path, 300),
+    imgClass: 'file-card__pdfimg',
+  });
+}
+
+export function kindTile(kind, size = 34) {
   const meta = KIND_META[kind] || KIND_META.pdf;
   return createEl('div', { className: `kind-tile kind-tile--${kind}` }, [
     icon(meta.icon, { size }),
@@ -816,6 +832,7 @@ export function createFileManager(opts) {
       });
     } else {
       thumb.appendChild(kindTile(row.file_kind, 34));
+      if (row.file_kind === 'pdf') attachPdfPreview(thumb, row);
     }
     thumb.addEventListener('click', () => openFilePreview(row, { list }));
 

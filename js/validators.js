@@ -8,6 +8,10 @@ import {
   ALLOWED_DOCUMENT_TYPES,
   SECTION_FILE_MAX_SIZE,
   SECTION_FILE_TYPES,
+  COMPETITION_FILE_MAX_SIZE,
+  COMPETITION_FILE_TYPES,
+  PARENT_MAX_IMAGE_SIZE,
+  PARENT_IMAGE_TYPES,
 } from './config.js';
 import { getFileExtension } from './utils.js';
 
@@ -125,6 +129,48 @@ export function validateSectionFile(file) {
     return { ok: false, error: `«${file.name}»: الحجم يتجاوز الحد المسموح (${mb} م.ب)` };
   }
   return { ok: true, ext, mime: spec.mime, kind: spec.kind };
+}
+
+/**
+ * ملفات المسابقات: PDF / صور / Word / PowerPoint
+ * @param {File} file
+ */
+export function validateCompetitionFile(file) {
+  if (!file) return { ok: false, error: 'لم يتم اختيار ملف' };
+  const ext = getFileExtension(file.name);
+  const spec = COMPETITION_FILE_TYPES[ext];
+  if (!spec) {
+    return {
+      ok: false,
+      error: `«${file.name}»: نوع غير مسموح. المسموح: PDF، Word، PowerPoint، JPG، PNG، WEBP، GIF`,
+    };
+  }
+  if (file.type && !spec.accept.includes(file.type)) {
+    return { ok: false, error: `«${file.name}»: امتداد الملف لا يطابق نوعه الحقيقي` };
+  }
+  if (file.size <= 0) return { ok: false, error: `«${file.name}»: الملف فارغ` };
+  if (file.size > COMPETITION_FILE_MAX_SIZE) {
+    const mb = COMPETITION_FILE_MAX_SIZE / (1024 * 1024);
+    return { ok: false, error: `«${file.name}»: الحجم يتجاوز الحد المسموح (${mb} م.ب)` };
+  }
+  return { ok: true, ext, mime: spec.mime, kind: spec.kind };
+}
+
+const PARENT_IMAGE_EXTS = { 'image/jpeg': ['jpg', 'jpeg'], 'image/png': ['png'], 'image/webp': ['webp'] };
+
+/** صور «بعيون أهالينا» وأغلفة المناسبات: JPG / PNG / WEBP حتى 5 م.ب */
+export function validateParentImage(file) {
+  if (!file) return { ok: false, error: 'لم يتم اختيار صورة' };
+  const ext = getFileExtension(file.name);
+  const mime = PARENT_IMAGE_TYPES.find((m) => PARENT_IMAGE_EXTS[m].includes(ext));
+  if (!mime || (file.type && file.type !== mime && !(mime === 'image/jpeg' && file.type === 'image/pjpeg'))) {
+    return { ok: false, error: `«${file.name}»: الصور المقبولة JPG أو PNG أو WEBP فقط` };
+  }
+  if (file.size <= 0) return { ok: false, error: `«${file.name}»: الملف فارغ` };
+  if (file.size > PARENT_MAX_IMAGE_SIZE) {
+    return { ok: false, error: `«${file.name}»: حجم الصورة يتجاوز 5 ميجابايت` };
+  }
+  return { ok: true, ext: ext === 'jpeg' ? 'jpg' : ext, mime };
 }
 
 export function sanitizeBackupDetails(obj) {

@@ -8,6 +8,7 @@ import { validatePassword } from './validators.js';
 
 let cachedProfile = null;
 let authListenerBound = false;
+let loggingOut = false;
 
 export function showConfigWarning() {
   document.body.replaceChildren();
@@ -58,6 +59,7 @@ export async function fetchProfile(force = false) {
 
 export function clearAuthCache() {
   cachedProfile = null;
+  featureManagerPromise = null;
 }
 
 export function canEdit(profile) {
@@ -66,6 +68,28 @@ export function canEdit(profile) {
       profile.is_active &&
       (profile.role === 'admin' || profile.role === 'activity_leader')
   );
+}
+
+let featureManagerPromise = null;
+
+/**
+ * هل الحساب الحالي هو حساب رائدة النشاط المعتمد لإدارة «بعيون أهالينا» والمسابقات؟
+ * يقرّره الخادم من هوية الجلسة (auth.uid) — هذا لعرض أدوات الإدارة فقط؛ الحماية الفعلية في RLS.
+ */
+export function isFeatureManager() {
+  if (!featureManagerPromise) {
+    featureManagerPromise = (async () => {
+      try {
+        const { data, error } = await getSupabase().rpc('is_feature_manager');
+        if (error) throw error;
+        return data === true;
+      } catch (err) {
+        logDev('is_feature_manager', err);
+        return false;
+      }
+    })();
+  }
+  return featureManagerPromise;
 }
 
 export function isAdmin(profile) {
@@ -108,20 +132,36 @@ export async function requireAuth() {
   }
 }
 
-export function bindAuthStateChange() {
+/**
+ * جلسة اختيارية للصفحات العامة: لا تحويل إلى تسجيل الدخول.
+ * @returns {Promise<{ session, user, profile }|null>} null للزائر أو لحساب غير نشط
+ */
+export async function getOptionalAuth() {
+  if (!isConfigReady()) return null;
+  try {
+    const session = await getSession();
+    if (!session) return null;
+    const user = await getUser();
+    if (!user) return null;
+    const profile = await fetchProfile(true);
+    if (!profile || !profile.is_active) return null;
+    bindAuthStateChange({ redirect: false });
+    return { session, user, profile };
+  } catch (err) {
+    logDev(err);
+    return null;
+  }
+}
+
+export function bindAuthStateChange({ redirect = true } = {}) {
   if (authListenerBound) return;
   authListenerBound = true;
   const sb = getSupabase();
   sb.auth.onAuthStateChange((event) => {
-    if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
-      if (event === 'SIGNED_OUT') {
-        clearAuthCache();
-        const path = location.pathname.split('/').pop() || '';
-        if (path !== 'login.html' && path !== 'index.html') {
-          window.location.replace('./login.html');
-        }
-      }
-    }
+    if (event !== 'SIGNED_OUT' || loggingOut) return;
+    clearAuthCache();
+    if (redirect) window.location.replace('./login.html');
+    else window.location.reload();
   });
 }
 
@@ -195,9 +235,16 @@ export async function loginWithUsername(username, password) {
 
 export async function logout() {
   const sb = getSupabase();
+  loggingOut = true;
   clearAuthCache();
+  try {
+    const { clearPdfThumbCache } = await import('./pdf-thumbs.js');
+    await clearPdfThumbCache();
+  } catch (err) {
+    logDev('clear thumbs', err);
+  }
   await sb.auth.signOut();
-  window.location.replace('./login.html');
+  window.location.replace('./index.html');
 }
 
 export async function changePassword(newPassword) {

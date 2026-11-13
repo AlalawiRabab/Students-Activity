@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' blob: data: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net; frame-src 'self' blob: https://*.supabase.co;">
-  <title>تسجيل الدخول | منصة النشاط الطلابي</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' blob: data: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://cdn.jsdelivr.net; frame-src 'self' blob: https://*.supabase.co; worker-src 'self' blob:;">
+  <title>دخول رائدة النشاط | منصة النشاط الطلابي</title>
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
@@ -21,6 +21,7 @@
       >
       <h1 id="platform-title">منصة النشاط الطلابي</h1>
       <p class="sub" id="leader-line">رائدة النشاط / إيمان الرحيلي</p>
+      <h2 class="login-card__heading">دخول رائدة النشاط</h2>
       <div id="login-alert" class="alert alert--error" role="alert"></div>
       <form id="login-form" novalidate>
         <label class="field">
@@ -48,6 +49,8 @@
         </label>
         <button type="submit" class="btn btn--primary" id="login-btn" style="width:100%;margin-top:1.1rem">تسجيل الدخول</button>
       </form>
+      <p class="login-card__note">الدخول خاص برائدة النشاط لإدارة المنصة. أولياء الأمور لا يحتاجون إلى حساب.</p>
+      <a class="btn btn--ghost login-card__back" href="./index.html">العودة إلى الواجهة العامة</a>
     </div>
   </div>
   <script type="module" src="./js/login.js"></script>

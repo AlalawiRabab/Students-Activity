@@ -10,7 +10,7 @@ import {
 } from './auth.js';
 import { initTheme, toggleTheme, setButtonLoading } from './ui.js';
 import { validateUsername, validateRequired } from './validators.js';
-import { fetchSettings } from './supabase-service.js';
+import { fetchPublicSettings } from './supabase-service.js';
 import { logDev } from './utils.js';
 
 initTheme();
@@ -54,12 +54,12 @@ async function boot() {
   }
   await redirectIfLoggedIn();
   try {
-    const settings = await fetchSettings();
+    const settings = await fetchPublicSettings();
     if (platformTitle) platformTitle.textContent = settings.platform_name;
     if (leaderLine) {
       leaderLine.textContent = `رائدة النشاط / ${settings.leader_name}`;
     }
-    document.title = `تسجيل الدخول | ${settings.platform_name}`;
+    document.title = `دخول رائدة النشاط | ${settings.platform_name}`;
   } catch (err) {
     logDev(err);
   }
