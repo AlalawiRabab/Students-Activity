@@ -1,50 +1,70 @@
 /**
- * app.js — تهيئة الصفحات المحمية والعامة
+ * app.js — تهيئة الصفحات
+ * كل الصفحات تعمل للزائر دون دخول وبالقائمة الرئيسية نفسها. ctx.canEdit = true في وضع الإدارة فقط
+ * (جلسة فُتحت بالرقم السري ويؤكدها الخادم)، والصلاحية الفعلية تفرضها RLS وسياسات التخزين.
  */
 import { isConfigReady } from './config.js';
-import { requireAuth, getOptionalAuth, canEdit, showConfigWarning } from './auth.js';
+import { getAdminContext, canEdit, isAdmin, showConfigWarning } from './auth.js';
 import { fetchSettings, fetchPublicSettings } from './supabase-service.js';
-import { mountShell, handleError, showToast } from './ui.js';
-import { mountPublicShell } from './public-shell.js';
+import { mountShell, handleError, showToast, renderAdminLock } from './ui.js';
 import { logDev } from './utils.js';
 
+const DEFAULT_SETTINGS = Object.freeze({
+  platform_name: 'منصة النشاط الطلابي',
+  leader_name: 'إيمان الرحيلي',
+});
+
 /**
- * @param {{ title: string, showPrint?: boolean }} options
+ * @param {{ title: string, showPrint?: boolean, adminOnly?: boolean }} options
+ *   adminOnly: صفحة إدارية بحتة (المراجعة، الإعدادات) — الزائر يرى طلب وضع الإدارة دون أي بيانات
  * @param {(ctx) => Promise<void>|void} pageInit
  */
-export async function bootProtectedPage(options, pageInit) {
+export async function bootPage(options, pageInit) {
+  if (!isConfigReady()) {
+    showConfigWarning();
+    return null;
+  }
   try {
-    const auth = await requireAuth();
-    if (!auth) return null;
+    const raw = await getAdminContext();
+    const auth = raw && !raw.expired ? raw : null;
 
     let settings;
     try {
-      settings = await fetchSettings();
+      settings = auth ? await fetchSettings() : await fetchPublicSettings();
     } catch (err) {
       logDev(err);
-      settings = {
-        platform_name: 'منصة النشاط الطلابي',
-        leader_name: 'إيمان الرحيلي',
-      };
+      settings = { ...DEFAULT_SETTINGS };
     }
+    document.title = `${options.title} | ${settings.platform_name || DEFAULT_SETTINGS.platform_name}`;
 
-    document.title = `${options.title} | ${settings.platform_name}`;
-
-    const ctx = mountShell({
+    const shell = mountShell({
       title: options.title,
-      profile: auth.profile,
+      profile: auth?.profile || null,
       settings,
       showPrint: options.showPrint !== false,
+      adminMode: Boolean(auth),
     });
+    if (raw?.expired) showToast('انتهت جلسة الإدارة، أعد إدخال الرقم السري عند الحاجة', 'info');
 
-    ctx.user = auth.user;
-    ctx.session = auth.session;
-    ctx.handleError = handleError;
-    ctx.showToast = showToast;
+    const ctx = {
+      ...shell,
+      canEdit: Boolean(auth && canEdit(auth.profile)),
+      isAdmin: Boolean(auth && isAdmin(auth.profile)),
+      adminMode: Boolean(auth),
+      isPublic: !auth,
+      user: auth?.user || null,
+      session: auth?.session || null,
+      profile: auth?.profile || null,
+      settings,
+      handleError,
+      showToast,
+    };
 
-    if (typeof pageInit === 'function') {
-      await pageInit(ctx);
+    if (options.adminOnly && !auth) {
+      renderAdminLock(ctx.content);
+      return ctx;
     }
+    if (typeof pageInit === 'function') await pageInit(ctx);
     return ctx;
   } catch (err) {
     handleError(err);
@@ -52,45 +72,11 @@ export async function bootProtectedPage(options, pageInit) {
   }
 }
 
-/**
- * صفحة عامة: تعمل للزائر دون جلسة. ctx.canEdit = true فقط لحساب رائدة النشاط النشط،
- * والصلاحية الفعلية تفرضها RLS في الخادم.
- * @param {{ title: string, adminShell?: boolean }} options
- *   adminShell: عند وجود جلسة نشطة تُعرض الصفحة داخل هيكل الإدارة (القائمة الجانبية)
- */
-export async function bootPublicPage(options, pageInit) {
-  if (!isConfigReady()) {
-    showConfigWarning();
-    return null;
-  }
-  try {
-    const auth = await getOptionalAuth();
-    const settings = await fetchPublicSettings();
-    document.title = `${options.title} | ${settings.platform_name}`;
+/** صفحات المحتوى (الأقسام، المعرض...): مشاهدة عامة، وأدوات الإدارة في وضع الإدارة فقط */
+export const bootProtectedPage = bootPage;
+export const bootPublicPage = bootPage;
 
-    let ctx;
-    if (auth && options.adminShell) {
-      ctx = mountShell({ title: options.title, profile: auth.profile, settings });
-    } else {
-      const shell = mountPublicShell({ settings, auth });
-      ctx = {
-        content: shell.content,
-        canEdit: Boolean(auth && canEdit(auth.profile)),
-        isAdmin: false,
-        profile: auth?.profile || null,
-        settings,
-      };
-    }
-    ctx.isPublic = !(auth && options.adminShell);
-    ctx.user = auth?.user || null;
-    ctx.session = auth?.session || null;
-    ctx.handleError = handleError;
-    ctx.showToast = showToast;
-
-    if (typeof pageInit === 'function') await pageInit(ctx);
-    return ctx;
-  } catch (err) {
-    handleError(err);
-    return null;
-  }
+/** صفحات إدارية بحتة */
+export function bootAdminPage(options, pageInit) {
+  return bootPage({ ...options, adminOnly: true }, pageInit);
 }

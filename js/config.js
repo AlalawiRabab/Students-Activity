@@ -106,8 +106,12 @@ export const PDFJS_ASSETS = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/';
 
 export const PAGE_SIZE = 20;
 
-/** اسم Edge Function لتسجيل الدخول باسم المستخدم */
-export const USERNAME_LOGIN_FUNCTION = 'auth-username-login';
+/** وضع الإدارة: Edge Function تتحقق من الرقم السري في الخادم (migrations/005) */
+export const ADMIN_PIN_FUNCTION = 'admin-pin';
+
+/** النطاق الرسمي للمنصة ورابط مشاركة الأهالي الثابت (يُرسل للأهالي) */
+export const PUBLIC_SITE_URL = 'https://activity.albian127.net';
+export const PARENTS_SHARE_URL = `${PUBLIC_SITE_URL}/parents-share.html`;
 
 export function isConfigReady() {
   return (

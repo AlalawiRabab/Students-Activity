@@ -139,11 +139,18 @@ export const SECTIONS = Object.freeze([
   },
 ]);
 
-/** أقسام مستقلة في القائمة الرئيسية خارج السجل الإلكتروني */
+/** أقسام مستقلة في القائمة الرئيسية خارج السجل الإلكتروني (متاحة للجميع) */
 export const PLATFORM_PAGES = Object.freeze([
-  { key: 'gallery', href: './gallery.html', label: 'معرض النشاط', icon: 'image' },
   { key: 'competitions', href: './competitions.html', label: 'المسابقات', icon: 'trophy' },
-  { key: 'parents', href: './parents-eyes-admin.html', label: 'بعيون أهالينا', icon: 'heart' },
+  { key: 'parents_share', href: './parents-share.html', label: 'مشاركة الأهالي', icon: 'camera' },
+  { key: 'parents', href: './parents-eyes.html', label: 'بعيون أهالينا', icon: 'heart' },
+  { key: 'gallery', href: './gallery.html', label: 'معرض النشاط', icon: 'image' },
+]);
+
+/** صفحات الإدارة (تظهر في القائمة في وضع الإدارة فقط؛ والخادم يحميها في كل الأحوال) */
+export const ADMIN_PAGES = Object.freeze([
+  { key: 'parents_review', href: './parents-eyes-admin.html', label: 'مراجعة مشاركات الأهالي', icon: 'checklist' },
+  { key: 'settings', href: './settings.html', label: 'الإعدادات', icon: 'settings' },
 ]);
 
 export function getSection(key) {

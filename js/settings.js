@@ -1,9 +1,9 @@
 /**
  * settings.js
  */
-import { bootProtectedPage } from './app.js';
+import { bootAdminPage } from './app.js';
 import { updateSettings } from './supabase-service.js';
-import { changePassword, logout } from './auth.js';
+import { changeAdminPin, exitAdminMode, adminPinErrorMessage } from './auth.js';
 import { exportDataBackup, importDataBackup } from './export.js';
 import { createEl } from './utils.js';
 import {
@@ -12,9 +12,9 @@ import {
   confirmDialog,
   buildToolbar,
 } from './ui.js';
-import { validateRequired, validateLength, validatePassword } from './validators.js';
+import { validateRequired, validateLength } from './validators.js';
 
-bootProtectedPage({ title: 'الإعدادات', showPrint: false }, async (ctx) => {
+bootAdminPage({ title: 'الإعدادات', showPrint: false }, async (ctx) => {
   const root = ctx.content;
   buildToolbar(root, []);
 
@@ -84,70 +84,74 @@ bootProtectedPage({ title: 'الإعدادات', showPrint: false }, async (ctx)
   platformCard.appendChild(platformForm);
   grid.appendChild(platformCard);
 
-  // الحساب
+  // الرقم السري لوضع الإدارة (يتحقق منه الخادم ويخزّن بصمته فقط)
   const accountCard = createEl('section', { className: 'card settings-card' });
-  accountCard.appendChild(createEl('h3', { textContent: 'الحساب' }));
-  const passForm = createEl('form', { className: 'form-grid' });
-  const pass1 = createEl('input', {
-    className: 'input',
-    type: 'password',
-    autocomplete: 'new-password',
-  });
-  const pass2 = createEl('input', {
-    className: 'input',
-    type: 'password',
-    autocomplete: 'new-password',
-  });
-  passForm.append(
-    field('كلمة المرور الجديدة', pass1, '8 أحرف على الأقل وتشمل حروفاً وأرقاماً'),
-    field('تأكيد كلمة المرور', pass2)
+  accountCard.appendChild(createEl('h3', { textContent: 'الرقم السري لإدارة المنصة' }));
+  const pinForm = createEl('form', { className: 'form-grid', novalidate: true });
+  const pinInput = (label) =>
+    createEl('input', {
+      className: 'input',
+      type: 'password',
+      inputmode: 'numeric',
+      autocomplete: 'off',
+      maxlength: '12',
+      dir: 'ltr',
+      'aria-label': label,
+    });
+  const currentPin = pinInput('الرقم السري الحالي');
+  const newPin = pinInput('الرقم السري الجديد');
+  const newPin2 = pinInput('تأكيد الرقم السري الجديد');
+  pinForm.append(
+    field('الرقم السري الحالي', currentPin),
+    field('الرقم السري الجديد', newPin, 'من 6 إلى 12 رقماً، ليس رقماً مكرراً ولا تسلسلاً مثل 123456'),
+    field('تأكيد الرقم السري الجديد', newPin2)
   );
-  const passBtn = createEl('button', {
+  const pinBtn = createEl('button', {
     type: 'submit',
     className: 'btn btn--primary',
-    textContent: 'تغيير كلمة المرور',
+    textContent: 'تغيير الرقم السري',
   });
-  passForm.appendChild(passBtn);
-  passForm.addEventListener('submit', async (e) => {
+  pinForm.appendChild(pinBtn);
+  pinForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const err = validatePassword(pass1.value);
-    if (err) {
-      ctx.showToast(err, 'error');
+    if (!/^[0-9]{6,12}$/.test(newPin.value.trim())) {
+      ctx.showToast('الرقم السري الجديد من 6 إلى 12 رقماً', 'error');
       return;
     }
-    if (pass1.value !== pass2.value) {
-      ctx.showToast('كلمتا المرور غير متطابقتين', 'error');
+    if (newPin.value.trim() !== newPin2.value.trim()) {
+      ctx.showToast('الرقمان الجديدان غير متطابقين', 'error');
       return;
     }
-    setButtonLoading(passBtn, true);
+    setButtonLoading(pinBtn, true);
     try {
-      await changePassword(pass1.value);
-      pass1.value = '';
-      pass2.value = '';
-      ctx.showToast('تم تغيير كلمة المرور بنجاح', 'success');
+      await changeAdminPin(currentPin.value, newPin.value);
+      ctx.showToast('تم تغيير الرقم السري، وأُنهيت جلسات الإدارة على الأجهزة الأخرى', 'success');
     } catch (error) {
-      ctx.handleError(error);
+      ctx.showToast(adminPinErrorMessage(error), 'error');
     } finally {
-      setButtonLoading(passBtn, false);
+      currentPin.value = '';
+      newPin.value = '';
+      newPin2.value = '';
+      setButtonLoading(pinBtn, false);
     }
   });
 
-  const logoutBtn = createEl('button', {
+  const exitBtn = createEl('button', {
     type: 'button',
     className: 'btn btn--ghost',
-    textContent: 'تسجيل الخروج',
+    textContent: 'الخروج من وضع الإدارة',
   });
-  logoutBtn.addEventListener('click', async () => {
+  exitBtn.addEventListener('click', async () => {
     const ok = await confirmDialog({
-      title: 'تسجيل الخروج',
-      message: 'هل تريد تسجيل الخروج؟',
+      title: 'الخروج من وضع الإدارة',
+      message: 'ستُخفى أدوات الإدارة وتنتهي صلاحيتها على هذا الجهاز فوراً.',
       confirmText: 'خروج',
       danger: true,
     });
-    if (ok) await logout();
+    if (ok) await exitAdminMode();
   });
 
-  accountCard.append(passForm, createEl('div', { style: 'margin-top:1rem' }, [logoutBtn]));
+  accountCard.append(pinForm, createEl('div', { style: 'margin-top:1rem' }, [exitBtn]));
   grid.appendChild(accountCard);
 
   // النسخ الاحتياطي

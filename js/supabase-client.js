@@ -1,5 +1,6 @@
 /**
  * supabase-client.js — عميل Supabase واحد
+ * جلسة وضع الإدارة تُحفظ في sessionStorage (تنتهي بإغلاق التبويب)، والزائر بلا جلسة.
  */
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 import { SUPABASE_URL, SUPABASE_ANON_KEY, isConfigReady } from './config.js';
@@ -15,8 +16,9 @@ export function getSupabase() {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
-        storageKey: 'sap-auth',
+        detectSessionInUrl: false,
+        storage: window.sessionStorage,
+        storageKey: 'sap-admin',
       },
     });
   }
