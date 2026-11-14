@@ -1,5 +1,25 @@
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
-import { hashPin, sessionIdFromJwt, validateNewPin, verifyPin, clientIp, hashIp } from './pin.ts';
+import {
+  DEVICE_TOKEN_RE,
+  clientIp,
+  deviceTokenHash,
+  hashIp,
+  hashPin,
+  newDeviceToken,
+  sessionIdFromJwt,
+  validateNewPin,
+  verifyPin,
+} from './pin.ts';
+
+Deno.test('device tokens are random base64url and stored only as a hash', async () => {
+  const a = newDeviceToken();
+  const b = newDeviceToken();
+  assert(DEVICE_TOKEN_RE.test(a) && DEVICE_TOKEN_RE.test(b));
+  assert(a !== b);
+  const h = await deviceTokenHash(a);
+  assert(/^[0-9a-f]{64}$/.test(h) && !h.includes(a));
+  assertEquals(h, await deviceTokenHash(a));
+});
 
 // بصمة ولّدتها tools/set-admin-pin.mjs (Node) للرقم 482916 — تتحقق من توافق الصيغتين
 const NODE_VECTOR = 'pbkdf2-sha256$210000$AAECAwQFBgcICQoLDA0ODw==$imbOnkT4b5Ewh9y6SlU8I8bItcJDZ/dXLFi5bVv3n2s=';

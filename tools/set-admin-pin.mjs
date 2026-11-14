@@ -10,6 +10,9 @@
  *   (npx supabase db query --remote)، ثم يُنهي كل جلسات الإدارة القائمة.
  * - يتطلب: تنفيذ migrations/005 أولاً، وتسجيل الدخول في Supabase CLI (npx supabase login).
  * - التغيير اللاحق متاح أيضاً من «الإعدادات» داخل وضع الإدارة.
+ *
+ * فك قفل الدخول من الأجهزة الجديدة (إن استنفد أحدٌ المحاولات) دون تغيير الرقم:
+ *   node tools/set-admin-pin.mjs --unlock
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -61,15 +64,51 @@ function projectRefFromConfig() {
   return m ? m[1] : null;
 }
 
-async function main() {
-  if (!process.stdin.isTTY) {
-    console.error('شغّل هذا الأمر في نافذة طرفية تفاعلية (لا تمرّر الرقم السري عبر أنبوب أو ملف).');
-    process.exit(1);
+function runSql(ref, sql) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sap-pin-'));
+  const file = path.join(dir, 'admin-pin.sql');
+  try {
+    fs.writeFileSync(file, sql, { mode: 0o600 });
+    const res = spawnSync('npx', ['supabase', 'db', 'query', `--remote=${ref}`, '-f', file], {
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+    return res.status === 0;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+const REQUIRE_005 = [
+  'do $$ begin',
+  "  if to_regclass('public.admin_pin') is null or not exists (select 1 from public.admin_pin where id = 1) then",
+  "    raise exception 'نفّذ migrations/005_public_view_admin_pin.sql أولاً';",
+  '  end if;',
+  'end $$;',
+];
+
+async function main() {
   const refArg = process.argv.find((a) => a.startsWith('--project-ref='));
   const ref = refArg ? refArg.split('=')[1] : projectRefFromConfig();
   if (!ref || !/^[a-z0-9]{20}$/.test(ref)) {
     console.error('تعذّر تحديد معرّف مشروع Supabase. مرّره هكذا: --project-ref=<ref>');
+    process.exit(1);
+  }
+
+  if (process.argv.includes('--unlock')) {
+    console.log(`فك قفل الدخول من الأجهزة الجديدة — مشروع Supabase: ${ref}`);
+    const ok = runSql(ref, [
+      ...REQUIRE_005,
+      'delete from public.admin_pin_attempts where not ok;',
+      'select count(*) as failed_attempts_left from public.admin_pin_attempts where not ok;',
+    ].join('\n'));
+    if (!ok) process.exitCode = 1;
+    else console.log('تم. يمكن الدخول الآن من زر «إدارة المنصة».');
+    return;
+  }
+
+  if (!process.stdin.isTTY) {
+    console.error('شغّل هذا الأمر في نافذة طرفية تفاعلية (لا تمرّر الرقم السري عبر أنبوب أو ملف).');
     process.exit(1);
   }
 
@@ -88,34 +127,20 @@ async function main() {
   }
 
   const encoded = hashPin(pin);
-  const sql = [
-    'do $$ begin',
-    "  if to_regclass('public.admin_pin') is null or not exists (select 1 from public.admin_pin where id = 1) then",
-    "    raise exception 'نفّذ migrations/005_public_view_admin_pin.sql أولاً';",
-    '  end if;',
-    'end $$;',
+  const ok = runSql(ref, [
+    ...REQUIRE_005,
     `update public.admin_pin set pin_hash = '${encoded}', updated_at = now() where id = 1;`,
     'update public.admin_sessions set revoked_at = now() where revoked_at is null;',
+    'update public.admin_trusted_devices set revoked_at = now() where revoked_at is null;',
+    'delete from public.admin_pin_attempts where not ok;',
     'select (pin_hash is not null) as pin_configured, updated_at from public.admin_pin where id = 1;',
-  ].join('\n');
-
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sap-pin-'));
-  const file = path.join(dir, 'set-pin.sql');
-  try {
-    fs.writeFileSync(file, sql, { mode: 0o600 });
-    const res = spawnSync('npx', ['supabase', 'db', 'query', `--remote=${ref}`, '-f', file], {
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
-    if (res.status !== 0) {
-      console.error('لم يكتمل الضبط. تحقق من تسجيل الدخول في Supabase CLI (npx supabase login) ومن تنفيذ 005.');
-      process.exitCode = 1;
-      return;
-    }
-    console.log('تم ضبط الرقم السري. استخدمه من زر «إدارة المنصة». لا ترسله في رسالة أو تحفظه في ملف.');
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+  ].join('\n'));
+  if (!ok) {
+    console.error('لم يكتمل الضبط. تحقق من تسجيل الدخول في Supabase CLI (npx supabase login) ومن تنفيذ 005.');
+    process.exitCode = 1;
+    return;
   }
+  console.log('تم ضبط الرقم السري. استخدمه من زر «إدارة المنصة». لا ترسله في رسالة أو تحفظه في ملف.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

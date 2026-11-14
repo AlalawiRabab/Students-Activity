@@ -3,6 +3,7 @@
  * المحتوى متاح للجميع دون دخول. أدوات الإضافة والتعديل والحذف والنشر والاعتماد تظهر في وضع الإدارة فقط،
  * والحماية الفعلية في الخادم: RLS وسياسات التخزين تشترط جلسة إدارة فُتحت بالرقم السري (migrations/005).
  * الرقم السري لا يُخزَّن في المتصفح؛ يُرسل مرة واحدة في جسم طلب POST إلى Edge Function admin-pin.
+ * يُحفظ في localStorage «رمز جهاز» عشوائي بعد أول دخول ناجح فقط (لا يفتح وضع الإدارة دون الرقم).
  */
 import { isConfigReady, SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_PIN_FUNCTION } from './config.js';
 import { getSupabase } from './supabase-client.js';
@@ -109,7 +110,21 @@ function bindAuthStateChange() {
   });
 }
 
+/** رمز الجهاز الموثوق (ليس الرقم السري ولا يمنح شيئاً وحده): يُخرج هذا الجهاز من الحد العام للأجهزة الجديدة */
+const DEVICE_KEY = 'sap-admin-device';
+
+function readDeviceToken() {
+  try {
+    const t = localStorage.getItem(DEVICE_KEY);
+    return t && /^[A-Za-z0-9_-]{43}$/.test(t) ? t : null;
+  } catch {
+    return null;
+  }
+}
+
 async function callAdminPin(payload) {
+  const deviceToken = readDeviceToken();
+  if (deviceToken) payload = { ...payload, device_token: deviceToken };
   let response;
   try {
     response = await fetch(`${SUPABASE_URL}/functions/v1/${ADMIN_PIN_FUNCTION}`, {
@@ -139,6 +154,13 @@ async function callAdminPin(payload) {
   }
   if (!body.access_token || !body.refresh_token) {
     throw Object.assign(new Error('تعذّر فتح وضع الإدارة'), { code: 'incomplete_session' });
+  }
+  if (typeof body.device_token === 'string' && /^[A-Za-z0-9_-]{43}$/.test(body.device_token)) {
+    try {
+      localStorage.setItem(DEVICE_KEY, body.device_token);
+    } catch {
+      /* ignore */
+    }
   }
   const { error } = await getSupabase().auth.setSession({
     access_token: body.access_token,
@@ -184,7 +206,9 @@ export async function exitAdminMode() {
 export function adminPinErrorMessage(err) {
   const code = String(err?.code || '');
   if (code === 'invalid_pin') return 'الرقم السري غير صحيح';
-  if (code === 'locked') return err.message || 'محاولات كثيرة غير صحيحة. انتظر 15 دقيقة ثم حاول مرة أخرى.';
+  if (code === 'locked' || code === 'locked_new_devices') {
+    return err.message || 'محاولات خاطئة كثيرة. انتظري 15 دقيقة ثم حاولي مرة أخرى.';
+  }
   if (code === 'not_configured') return 'لم يُضبط الرقم السري لإدارة المنصة بعد';
   if (code === 'weak_pin') return err.message || 'الرقم السري الجديد غير مقبول';
   if (code === 'network') return 'تعذّر الاتصال بالخادم';

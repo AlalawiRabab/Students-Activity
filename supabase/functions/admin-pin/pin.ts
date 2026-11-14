@@ -85,9 +85,25 @@ export function clientIp(headers: Headers): string {
   return 'unknown';
 }
 
-export async function hashIp(ip: string, salt: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`admin-pin|${salt}|${ip}`));
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function hashIp(ip: string, salt: string): Promise<string> {
+  return sha256Hex(`admin-pin|${salt}|${ip}`);
+}
+
+/** رمز الجهاز الموثوق: 32 بايت عشوائية base64url (43 حرفاً). يُخزَّن في الخادم كبصمة فقط. */
+export const DEVICE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+export function newDeviceToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return toB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+export function deviceTokenHash(token: string): Promise<string> {
+  return sha256Hex(`admin-device|${token}`);
 }
 
 /** معرّف جلسة Supabase Auth من حمولة JWT صادر للتو من الخادم نفسه */

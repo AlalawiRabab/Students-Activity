@@ -3,14 +3,16 @@
  * ---------------------------------------------------------------
  * فتح وضع إدارة المنصة بالرقم السري الخاص برائدة النشاط.
  * - يتحقق من الرقم في الخادم مقابل بصمة PBKDF2 في public.admin_pin (الرقم نفسه لا يُخزَّن ولا يُسجَّل).
- * - حد للمحاولات: 5 فاشلة / 15 دقيقة لكل بصمة IP، و30 فاشلة / ساعة على مستوى المنصة.
+ * - حد للمحاولات دون قفل عام: الجهاز الموثوق (سبق الدخول منه) له حده الخاص (5 / 15 دقيقة) ولا يتأثر
+ *   بغيره؛ الجهاز الجديد: 5 / 15 دقيقة لكل بصمة IP وسقف إجمالي للأجهزة الجديدة فقط (30 / ساعة، 100 / يوم).
  * - عند النجاح يصدر جلسة Supabase Auth لحساب رائدة النشاط المعتمد ويسجّلها في admin_sessions؛
  *   صلاحيات الكتابة في RLS (is_editor / is_admin / is_feature_manager) تشترط هذه الجلسة.
  *
- * الطلب: POST JSON
- *   { "action": "login",  "pin": "......" }
- *   { "action": "change", "pin": "<الحالي>", "new_pin": "<الجديد>" }  ← يُنهي كل جلسات الإدارة ويصدر جلسة جديدة
- * الاستجابة: { ok, access_token, refresh_token, expires_in, expires_at, admin_until } أو { error, message }
+ * الطلب: POST JSON (device_token اختياري: رمز الجهاز الموثوق الذي أصدرته الدالة سابقاً)
+ *   { "action": "login",  "pin": "......", "device_token"?: "..." }
+ *   { "action": "change", "pin": "<الحالي>", "new_pin": "<الجديد>", "device_token"?: "..." }
+ *     ← يُنهي كل جلسات الإدارة ويلغي ثقة الأجهزة الأخرى ويصدر جلسة جديدة
+ * الاستجابة: { ok, access_token, refresh_token, expires_in, expires_at, admin_until, device_token? } أو { error, message }
  *
  * الأسرار: SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY (تلقائية)،
  *   ADMIN_PIN_SALT (اختياري: ملح بصمات IP؛ وإلا PARENT_SUBMIT_SALT)، ADMIN_SESSION_HOURS (افتراضي 8)،
@@ -21,10 +23,13 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 import {
+  DEVICE_TOKEN_RE,
   PIN_INPUT_RE,
   clientIp,
+  deviceTokenHash,
   hashIp,
   hashPin,
+  newDeviceToken,
   readTextLimited,
   sessionIdFromJwt,
   validateNewPin,
@@ -92,7 +97,7 @@ Deno.serve(async (req) => {
 
   const raw = await readTextLimited(req, MAX_BODY);
   if (raw === null) return json(413, { error: 'too_large', message: 'طلب غير صالح' }, origin);
-  let body: { action?: unknown; pin?: unknown; new_pin?: unknown };
+  let body: { action?: unknown; pin?: unknown; new_pin?: unknown; device_token?: unknown };
   try {
     body = JSON.parse(raw || '{}');
   } catch {
@@ -118,19 +123,33 @@ Deno.serve(async (req) => {
   });
 
   const ipHash = await hashIp(clientIp(req.headers), ipSalt);
-  const { data: begin, error: beginErr } = await admin.rpc('admin_pin_begin', { p_ip_hash: ipHash });
+  const deviceToken = typeof body.device_token === 'string' && DEVICE_TOKEN_RE.test(body.device_token)
+    ? body.device_token
+    : null;
+  const deviceHash = deviceToken ? await deviceTokenHash(deviceToken) : null;
+  const { data: begin, error: beginErr } = await admin.rpc('admin_pin_begin', {
+    p_ip_hash: ipHash,
+    p_device_hash: deviceHash,
+  });
   if (beginErr) {
     console.error('begin', beginErr.message);
     return serverError(origin);
   }
   const gate = Array.isArray(begin) ? begin[0] : begin;
   if (!gate || gate.status !== 'ok') {
+    if (gate?.status === 'locked_new_devices') {
+      return json(429, {
+        error: 'locked_new_devices',
+        message: 'الدخول من الأجهزة الجديدة متوقف مؤقتاً بسبب محاولات خاطئة كثيرة. استخدمي جهازاً سبق الدخول منه، أو حاولي لاحقاً.',
+      }, origin);
+    }
     return json(429, {
       error: 'locked',
-      message: 'محاولات كثيرة غير صحيحة. انتظر 15 دقيقة ثم حاول مرة أخرى.',
+      message: 'محاولات خاطئة كثيرة من هذا الجهاز. انتظري 15 دقيقة ثم حاولي مرة أخرى.',
     }, origin);
   }
   const attemptId = gate.attempt_id;
+  const trusted = gate.trusted === true;
 
   const { data: row, error: rowErr } = await admin
     .from('admin_pin')
@@ -152,6 +171,19 @@ Deno.serve(async (req) => {
   }
   await admin.rpc('admin_pin_succeed', { p_attempt_id: attemptId });
 
+  // جهاز جديد نجح بالرقم الصحيح: يصبح موثوقاً (رمز عشوائي يُعاد للمتصفح وتُخزَّن بصمته فقط)
+  let issuedDeviceToken: string | null = null;
+  let keepDeviceHash = trusted ? deviceHash : null;
+  if (!trusted) {
+    issuedDeviceToken = newDeviceToken();
+    keepDeviceHash = await deviceTokenHash(issuedDeviceToken);
+    const { error: devErr } = await admin.rpc('admin_device_register', { p_token_hash: keepDeviceHash });
+    if (devErr) {
+      console.error('device', devErr.message);
+      issuedDeviceToken = null;
+    }
+  }
+
   if (action === 'change') {
     const { error: upErr } = await admin
       .from('admin_pin')
@@ -163,6 +195,8 @@ Deno.serve(async (req) => {
     }
     const { error: revokeErr } = await admin.rpc('admin_revoke_all_sessions');
     if (revokeErr) console.error('revoke', revokeErr.message);
+    const { error: devRevokeErr } = await admin.rpc('admin_revoke_devices_except', { p_keep_hash: keepDeviceHash });
+    if (devRevokeErr) console.error('revoke devices', devRevokeErr.message);
   }
 
   // الحساب الذي يفتحه الرقم: رائدة النشاط المعتمدة، نشطة وبدور تحرير
@@ -219,5 +253,6 @@ Deno.serve(async (req) => {
     expires_in: session.expires_in,
     expires_at: session.expires_at,
     admin_until: until,
+    ...(issuedDeviceToken ? { device_token: issuedDeviceToken } : {}),
   }, origin);
 });

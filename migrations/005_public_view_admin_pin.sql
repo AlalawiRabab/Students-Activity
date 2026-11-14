@@ -77,6 +77,17 @@ create table if not exists public.admin_sessions (
 );
 create index if not exists idx_admin_sessions_expires on public.admin_sessions (expires_at);
 
+-- أجهزة موثوقة: جهاز فُتح منه وضع الإدارة بالرقم الصحيح يحصل على رمز جهاز عشوائي (تُخزَّن بصمته فقط).
+-- الرمز وحده لا يمنح شيئاً (الرقم السري مطلوب دائماً)، لكنه يُخرج الجهاز من الحد العام للأجهزة الجديدة،
+-- فلا يستطيع زائر تعطيل دخول رائدة النشاط من أجهزتها باستنفاد المحاولات.
+create table if not exists public.admin_trusted_devices (
+  id bigint generated always as identity primary key,
+  token_hash text not null unique check (token_hash ~ '^[0-9a-f]{64}$'),
+  created_at timestamptz not null default now(),
+  last_used_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+
 -- محاولات إدخال الرقم السري (بصمة IP مُجزّأة بملح، لا العنوان نفسه)
 create table if not exists public.admin_pin_attempts (
   id bigint generated always as identity primary key,
@@ -84,19 +95,25 @@ create table if not exists public.admin_pin_attempts (
   ok boolean not null default false,
   created_at timestamptz not null default now()
 );
+alter table public.admin_pin_attempts
+  add column if not exists device_id bigint references public.admin_trusted_devices (id) on delete cascade;
 create index if not exists idx_admin_pin_attempts_ip on public.admin_pin_attempts (ip_hash, created_at);
 create index if not exists idx_admin_pin_attempts_created on public.admin_pin_attempts (created_at);
+create index if not exists idx_admin_pin_attempts_device on public.admin_pin_attempts (device_id, created_at);
 
 alter table public.admin_pin enable row level security;
 alter table public.admin_sessions enable row level security;
 alter table public.admin_pin_attempts enable row level security;
+alter table public.admin_trusted_devices enable row level security;
 
 revoke all on table public.admin_pin from public, anon, authenticated;
 revoke all on table public.admin_sessions from public, anon, authenticated;
 revoke all on table public.admin_pin_attempts from public, anon, authenticated;
+revoke all on table public.admin_trusted_devices from public, anon, authenticated;
 grant select, update on table public.admin_pin to service_role;
 grant select, insert, update, delete on table public.admin_sessions to service_role;
 grant select, insert, update, delete on table public.admin_pin_attempts to service_role;
+grant select, insert, update, delete on table public.admin_trusted_devices to service_role;
 -- لا سياسات RLS: لا يصل إليها أي عميل؛ service_role يتجاوز RLS
 
 -- =====================================================================
@@ -187,52 +204,99 @@ grant execute on function public.is_feature_manager() to authenticated;
 -- =====================================================================
 -- 3) دوال Edge Function admin-pin (service_role فقط)
 -- =====================================================================
--- حدود المحاولات (المحاولة تُسجَّل فاشلة مسبقاً ثم تُعلَّم ناجحة، فلا تتجاوزها الطلبات المتزامنة):
---   لكل بصمة IP: 5 محاولات فاشلة خلال 15 دقيقة.
---   على مستوى المنصة (لا يعتمد على هوية المرسل): 30 محاولة فاشلة خلال ساعة.
-create or replace function public.admin_pin_begin(p_ip_hash text)
-returns table (status text, attempt_id bigint)
+-- حدود المحاولات (المحاولة تُسجَّل فاشلة مسبقاً ثم تُعلَّم ناجحة، فلا تتجاوزها الطلبات المتزامنة).
+-- لا يوجد قفل عام يمنع رائدة النشاط من الدخول:
+--   (أ) جهاز موثوق (سبق الدخول منه بالرقم الصحيح): حده الخاص فقط — 5 أخطاء / 15 دقيقة؛
+--       ولا يتأثر بأخطاء غيره ولا بعنوان الشبكة المشترك (مثل شبكة المدرسة). 10 أخطاء خلال يوم تُلغي ثقته.
+--   (ب) جهاز جديد: 5 أخطاء / 15 دقيقة لكل بصمة IP، وسقف إجمالي للأجهزة الجديدة فقط
+--       (30 خطأ / ساعة و100 / يوم) يجعل التخمين الموزّع بطيئاً جداً، ولا يمس الأجهزة الموثوقة.
+--   فك القفل للأجهزة الجديدة عند الحاجة: node tools/set-admin-pin.mjs --unlock (يتطلب دخول Supabase CLI).
+drop function if exists public.admin_pin_begin(text);
+create or replace function public.admin_pin_begin(p_ip_hash text, p_device_hash text default null)
+returns table (status text, attempt_id bigint, trusted boolean)
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_ip integer;
-  v_global integer;
+  v_device bigint;
+  v_count integer;
+  v_hour integer;
+  v_day integer;
   v_id bigint;
 begin
   if p_ip_hash is null or p_ip_hash !~ '^[0-9a-f]{64}$' then
     raise exception 'بصمة غير صالحة';
+  end if;
+  if p_device_hash is not null and p_device_hash !~ '^[0-9a-f]{64}$' then
+    p_device_hash := null;
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended('admin_pin_begin', 0));
 
   delete from public.admin_pin_attempts where created_at < now() - interval '2 days';
   delete from public.admin_sessions where expires_at < now() - interval '7 days';
+  delete from public.admin_trusted_devices
+  where (revoked_at is not null and revoked_at < now() - interval '30 days')
+     or last_used_at < now() - interval '180 days';
 
-  select count(*) into v_ip
-  from public.admin_pin_attempts a
-  where a.ip_hash = p_ip_hash and not a.ok and a.created_at > now() - interval '15 minutes';
+  if p_device_hash is not null then
+    select d.id into v_device
+    from public.admin_trusted_devices d
+    where d.token_hash = p_device_hash
+      and d.revoked_at is null
+      and d.last_used_at > now() - interval '90 days';
+  end if;
 
-  select count(*) into v_global
-  from public.admin_pin_attempts a
-  where not a.ok and a.created_at > now() - interval '1 hour';
+  if v_device is not null then
+    select count(*) into v_day
+    from public.admin_pin_attempts a
+    where a.device_id = v_device and not a.ok and a.created_at > now() - interval '1 day';
+    if v_day >= 10 then
+      update public.admin_trusted_devices set revoked_at = now() where id = v_device;
+      v_device := null;
+    end if;
+  end if;
 
-  if v_ip >= 5 then
-    return query select 'locked_ip'::text, null::bigint;
+  if v_device is not null then
+    select count(*) into v_count
+    from public.admin_pin_attempts a
+    where a.device_id = v_device and not a.ok and a.created_at > now() - interval '15 minutes';
+    if v_count >= 5 then
+      return query select 'locked_device'::text, null::bigint, true;
+      return;
+    end if;
+    insert into public.admin_pin_attempts (ip_hash, device_id, ok) values (p_ip_hash, v_device, false) returning id into v_id;
+    return query select 'ok'::text, v_id, true;
     return;
   end if;
-  if v_global >= 30 then
-    return query select 'locked_global'::text, null::bigint;
+
+  select count(*) into v_count
+  from public.admin_pin_attempts a
+  where a.ip_hash = p_ip_hash and a.device_id is null and not a.ok
+    and a.created_at > now() - interval '15 minutes';
+  if v_count >= 5 then
+    return query select 'locked_ip'::text, null::bigint, false;
+    return;
+  end if;
+
+  select
+    count(*) filter (where a.created_at > now() - interval '1 hour'),
+    count(*)
+  into v_hour, v_day
+  from public.admin_pin_attempts a
+  where a.device_id is null and not a.ok and a.created_at > now() - interval '1 day';
+  if v_hour >= 30 or v_day >= 100 then
+    return query select 'locked_new_devices'::text, null::bigint, false;
     return;
   end if;
 
   insert into public.admin_pin_attempts (ip_hash, ok) values (p_ip_hash, false) returning id into v_id;
-  return query select 'ok'::text, v_id;
+  return query select 'ok'::text, v_id, false;
 end;
 $$;
 
--- نجاح المحاولة: تُعلَّم ناجحة وتُصفَّر محاولات هذه البصمة الفاشلة الأخيرة
+-- نجاح المحاولة: تُعلَّم ناجحة وتُصفَّر أخطاء الجهاز (أو بصمة IP للجهاز الجديد) الأخيرة
 create or replace function public.admin_pin_succeed(p_attempt_id bigint)
 returns void
 language plpgsql
@@ -241,13 +305,52 @@ set search_path = public
 as $$
 declare
   v_hash text;
+  v_device bigint;
 begin
-  update public.admin_pin_attempts set ok = true where id = p_attempt_id returning ip_hash into v_hash;
-  if v_hash is not null then
+  update public.admin_pin_attempts set ok = true where id = p_attempt_id
+  returning ip_hash, device_id into v_hash, v_device;
+  if v_device is not null then
+    update public.admin_trusted_devices set last_used_at = now() where id = v_device;
     delete from public.admin_pin_attempts
-    where ip_hash = v_hash and not ok and created_at > now() - interval '15 minutes';
+    where device_id = v_device and not ok and created_at > now() - interval '1 day';
+  elsif v_hash is not null then
+    delete from public.admin_pin_attempts
+    where ip_hash = v_hash and device_id is null and not ok and created_at > now() - interval '15 minutes';
   end if;
 end;
+$$;
+
+-- تسجيل جهاز موثوق بعد دخول ناجح (يُبقي أحدث 10 أجهزة فعّالة)
+create or replace function public.admin_device_register(p_token_hash text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_token_hash is null or p_token_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'بصمة جهاز غير صالحة';
+  end if;
+  insert into public.admin_trusted_devices (token_hash) values (p_token_hash)
+  on conflict (token_hash) do update set last_used_at = now(), revoked_at = null;
+  update public.admin_trusted_devices set revoked_at = now()
+  where revoked_at is null
+    and id not in (
+      select id from public.admin_trusted_devices
+      where revoked_at is null order by last_used_at desc limit 10
+    );
+end;
+$$;
+
+-- عند تغيير الرقم السري: إلغاء ثقة كل الأجهزة عدا الجهاز الحالي
+create or replace function public.admin_revoke_devices_except(p_keep_hash text)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.admin_trusted_devices set revoked_at = now()
+  where revoked_at is null and token_hash is distinct from p_keep_hash;
 $$;
 
 -- محاولة لم تُفحص (مثلاً الرقم السري غير مضبوط بعد): لا تُحتسب
@@ -299,16 +402,20 @@ as $$
   select count(*)::integer from r;
 $$;
 
-revoke all on function public.admin_pin_begin(text) from public, anon, authenticated;
+revoke all on function public.admin_pin_begin(text, text) from public, anon, authenticated;
 revoke all on function public.admin_pin_succeed(bigint) from public, anon, authenticated;
 revoke all on function public.admin_pin_cancel(bigint) from public, anon, authenticated;
 revoke all on function public.admin_pin_register_session(uuid, uuid, integer) from public, anon, authenticated;
 revoke all on function public.admin_revoke_all_sessions() from public, anon, authenticated;
-grant execute on function public.admin_pin_begin(text) to service_role;
+revoke all on function public.admin_device_register(text) from public, anon, authenticated;
+revoke all on function public.admin_revoke_devices_except(text) from public, anon, authenticated;
+grant execute on function public.admin_pin_begin(text, text) to service_role;
 grant execute on function public.admin_pin_succeed(bigint) to service_role;
 grant execute on function public.admin_pin_cancel(bigint) to service_role;
 grant execute on function public.admin_pin_register_session(uuid, uuid, integer) to service_role;
 grant execute on function public.admin_revoke_all_sessions() to service_role;
+grant execute on function public.admin_device_register(text) to service_role;
+grant execute on function public.admin_revoke_devices_except(text) to service_role;
 
 -- =====================================================================
 -- 4) المشاهدة العامة: الأقسام الـ 12 وملفاتها
