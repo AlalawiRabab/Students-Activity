@@ -1,14 +1,16 @@
 /**
- * auth.js — المصادقة وحماية الصفحات
+ * auth.js — وضع الإدارة بالرقم السري
+ * المحتوى متاح للجميع دون دخول. أدوات الإضافة والتعديل والحذف والنشر والاعتماد تظهر في وضع الإدارة فقط،
+ * والحماية الفعلية في الخادم: RLS وسياسات التخزين تشترط جلسة إدارة فُتحت بالرقم السري (migrations/005).
+ * الرقم السري لا يُخزَّن في المتصفح؛ يُرسل مرة واحدة في جسم طلب POST إلى Edge Function admin-pin.
  */
-import { isConfigReady, SUPABASE_URL, SUPABASE_ANON_KEY, USERNAME_LOGIN_FUNCTION } from './config.js';
+import { isConfigReady, SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_PIN_FUNCTION } from './config.js';
 import { getSupabase } from './supabase-client.js';
 import { logDev } from './utils.js';
-import { validatePassword } from './validators.js';
 
-let cachedProfile = null;
+let adminPromise = null;
 let authListenerBound = false;
-let loggingOut = false;
+let leaving = false;
 
 export function showConfigWarning() {
   document.body.replaceChildren();
@@ -28,38 +30,8 @@ export function showConfigWarning() {
   document.body.appendChild(wrap);
 }
 
-export async function getSession() {
-  const sb = getSupabase();
-  const { data, error } = await sb.auth.getSession();
-  if (error) throw error;
-  return data.session;
-}
-
-export async function getUser() {
-  const sb = getSupabase();
-  const { data, error } = await sb.auth.getUser();
-  if (error) throw error;
-  return data.user;
-}
-
-export async function fetchProfile(force = false) {
-  if (cachedProfile && !force) return cachedProfile;
-  const sb = getSupabase();
-  const user = await getUser();
-  if (!user) return null;
-  const { data, error } = await sb
-    .from('profiles')
-    .select('id, full_name, role, is_active, username')
-    .eq('id', user.id)
-    .maybeSingle();
-  if (error) throw error;
-  cachedProfile = data;
-  return data;
-}
-
 export function clearAuthCache() {
-  cachedProfile = null;
-  featureManagerPromise = null;
+  adminPromise = null;
 }
 
 export function canEdit(profile) {
@@ -70,172 +42,130 @@ export function canEdit(profile) {
   );
 }
 
-let featureManagerPromise = null;
-
-/**
- * هل الحساب الحالي هو حساب رائدة النشاط المعتمد لإدارة «بعيون أهالينا» والمسابقات؟
- * يقرّره الخادم من هوية الجلسة (auth.uid) — هذا لعرض أدوات الإدارة فقط؛ الحماية الفعلية في RLS.
- */
-export function isFeatureManager() {
-  if (!featureManagerPromise) {
-    featureManagerPromise = (async () => {
-      try {
-        const { data, error } = await getSupabase().rpc('is_feature_manager');
-        if (error) throw error;
-        return data === true;
-      } catch (err) {
-        logDev('is_feature_manager', err);
-        return false;
-      }
-    })();
-  }
-  return featureManagerPromise;
-}
-
 export function isAdmin(profile) {
   return Boolean(profile && profile.is_active && profile.role === 'admin');
 }
 
-export async function requireAuth() {
-  if (!isConfigReady()) {
-    showConfigWarning();
-    return null;
-  }
-
+async function readAdminContext() {
+  if (!isConfigReady()) return null;
+  // جلسات النسخة السابقة (localStorage) لا تمنح وضع الإدارة؛ تُزال
   try {
-    const session = await getSession();
-    if (!session) {
-      window.location.replace('./login.html');
-      return null;
+    localStorage.removeItem('sap-auth');
+  } catch {
+    /* ignore */
+  }
+  const sb = getSupabase();
+  const { data } = await sb.auth.getSession();
+  const session = data?.session;
+  if (!session) return null;
+  try {
+    const { data: ok, error } = await sb.rpc('is_feature_manager');
+    if (error) throw error;
+    if (ok !== true) {
+      // جلسة انتهت أو أُلغيت في الخادم: خروج محلي بصمت
+      await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+      return { expired: true };
     }
-
-    const user = await getUser();
-    if (!user) {
-      window.location.replace('./login.html');
-      return null;
-    }
-
-    const profile = await fetchProfile(true);
-    if (!profile || !profile.is_active) {
-      await getSupabase().auth.signOut();
-      clearAuthCache();
-      window.location.replace('./login.html');
-      return null;
-    }
-
+    const { data: userData } = await sb.auth.getUser();
+    const user = userData?.user;
+    if (!user) return null;
+    const { data: profile, error: pErr } = await sb
+      .from('profiles')
+      .select('id, full_name, role, is_active, username')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (pErr) throw pErr;
+    if (!profile?.is_active) return null;
     bindAuthStateChange();
     return { session, user, profile };
   } catch (err) {
-    logDev(err);
-    window.location.replace('./login.html');
+    logDev('admin context', err);
     return null;
   }
 }
 
 /**
- * جلسة اختيارية للصفحات العامة: لا تحويل إلى تسجيل الدخول.
- * @returns {Promise<{ session, user, profile }|null>} null للزائر أو لحساب غير نشط
+ * سياق وضع الإدارة إن كان مفعّلاً وصالحاً في الخادم، وإلا null (زائر).
+ * @returns {Promise<{ session, user, profile }|{ expired: true }|null>}
  */
-export async function getOptionalAuth() {
-  if (!isConfigReady()) return null;
-  try {
-    const session = await getSession();
-    if (!session) return null;
-    const user = await getUser();
-    if (!user) return null;
-    const profile = await fetchProfile(true);
-    if (!profile || !profile.is_active) return null;
-    bindAuthStateChange({ redirect: false });
-    return { session, user, profile };
-  } catch (err) {
-    logDev(err);
-    return null;
-  }
+export function getAdminContext() {
+  if (!adminPromise) adminPromise = readAdminContext();
+  return adminPromise;
 }
 
-export function bindAuthStateChange({ redirect = true } = {}) {
+/** هل وضع الإدارة صالح الآن؟ (يقرره الخادم من هوية الجلسة) */
+export async function isFeatureManager() {
+  const ctx = await getAdminContext();
+  return Boolean(ctx && !ctx.expired);
+}
+
+function bindAuthStateChange() {
   if (authListenerBound) return;
   authListenerBound = true;
-  const sb = getSupabase();
-  sb.auth.onAuthStateChange((event) => {
-    if (event !== 'SIGNED_OUT' || loggingOut) return;
+  getSupabase().auth.onAuthStateChange((event) => {
+    if (event !== 'SIGNED_OUT' || leaving) return;
     clearAuthCache();
-    if (redirect) window.location.replace('./login.html');
-    else window.location.reload();
+    window.location.reload();
   });
 }
 
-export async function login(email, password) {
-  const sb = getSupabase();
-  const { data, error } = await sb.auth.signInWithPassword({
-    email: String(email).trim(),
-    password,
-  });
-  if (error) throw error;
-  clearAuthCache();
-  return data;
-}
-
-/**
- * تسجيل الدخول باسم المستخدم عبر Edge Function
- * (لا يُرجع البريد للمتصفح ولا يقرأ profiles كـ anon)
- */
-export async function loginWithUsername(username, password) {
-  const sb = getSupabase();
-  const endpoint = `${SUPABASE_URL}/functions/v1/${USERNAME_LOGIN_FUNCTION}`;
-
+async function callAdminPin(payload) {
   let response;
   try {
-    response = await fetch(endpoint, {
+    response = await fetch(`${SUPABASE_URL}/functions/v1/${ADMIN_PIN_FUNCTION}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({
-        username: String(username).trim(),
-        password,
-      }),
+      body: JSON.stringify(payload),
     });
   } catch (err) {
     logDev(err);
-    throw new Error('تعذّر الاتصال بخدمة تسجيل الدخول');
+    throw Object.assign(new Error('تعذّر الاتصال بالخادم'), { code: 'network' });
   }
-
-  let payload = null;
+  let body = null;
   try {
-    payload = await response.json();
-  } catch (err) {
-    logDev(err);
-    throw new Error('استجابة غير صالحة من خدمة تسجيل الدخول');
+    body = await response.json();
+  } catch {
+    body = null;
   }
-
-  if (!response.ok) {
-    const msg = payload?.message || payload?.error || 'invalid_credentials';
-    const error = new Error(String(msg));
-    error.status = response.status;
-    error.code = payload?.error || 'invalid_credentials';
-    throw error;
+  if (!response.ok || !body?.ok) {
+    throw Object.assign(new Error(body?.message || 'تعذّر فتح وضع الإدارة'), {
+      code: body?.error || 'server_error',
+      status: response.status,
+    });
   }
-
-  if (!payload?.access_token || !payload?.refresh_token) {
-    throw new Error('incomplete_session');
+  if (!body.access_token || !body.refresh_token) {
+    throw Object.assign(new Error('تعذّر فتح وضع الإدارة'), { code: 'incomplete_session' });
   }
-
-  const { data, error } = await sb.auth.setSession({
-    access_token: payload.access_token,
-    refresh_token: payload.refresh_token,
+  const { error } = await getSupabase().auth.setSession({
+    access_token: body.access_token,
+    refresh_token: body.refresh_token,
   });
   if (error) throw error;
-
   clearAuthCache();
-  return data;
+  return body;
 }
 
-export async function logout() {
-  const sb = getSupabase();
-  loggingOut = true;
+/** فتح وضع الإدارة بالرقم السري (يتحقق منه الخادم) */
+export function enterAdminMode(pin) {
+  return callAdminPin({ action: 'login', pin: String(pin || '').trim() });
+}
+
+/** تغيير الرقم السري: يتطلب الرقم الحالي، ويُنهي جلسات الإدارة الأخرى، ويفتح جلسة جديدة لهذا الجهاز */
+export function changeAdminPin(currentPin, newPin) {
+  return callAdminPin({
+    action: 'change',
+    pin: String(currentPin || '').trim(),
+    new_pin: String(newPin || '').trim(),
+  });
+}
+
+/** الخروج من وضع الإدارة: تُحذف الجلسة من الخادم فوراً فتفقد أي صلاحية كتابة */
+export async function exitAdminMode() {
+  leaving = true;
   clearAuthCache();
   try {
     const { clearPdfThumbCache } = await import('./pdf-thumbs.js');
@@ -243,50 +173,20 @@ export async function logout() {
   } catch (err) {
     logDev('clear thumbs', err);
   }
-  await sb.auth.signOut();
-  window.location.replace('./index.html');
-}
-
-export async function changePassword(newPassword) {
-  const errMsg = validatePassword(newPassword);
-  if (errMsg) throw new Error(errMsg);
-  const sb = getSupabase();
-  const { error } = await sb.auth.updateUser({ password: newPassword });
-  if (error) throw error;
-}
-
-export function authErrorMessage(err) {
-  const m = String(err?.message || err || '').toLowerCase();
-  const code = String(err?.code || '').toLowerCase();
-  if (
-    code === 'invalid_credentials' ||
-    m.includes('invalid_credentials') ||
-    m.includes('invalid login') ||
-    m.includes('invalid credentials') ||
-    m.includes('اسم المستخدم أو كلمة المرور')
-  ) {
-    return 'اسم المستخدم أو كلمة المرور غير صحيحة';
-  }
-  if (m.includes('email not confirmed')) return 'لم يتم تأكيد البريد الإلكتروني بعد';
-  if (m.includes('rate limit')) return 'محاولات كثيرة، حاول لاحقاً';
-  if (m.includes('network') || m.includes('تعذّر الاتصال')) {
-    return 'تعذّر الاتصال بالخادم';
-  }
-  if (m.includes('incomplete_session') || m.includes('server_misconfigured')) {
-    return 'تعذّر إكمال تسجيل الدخول، حاول لاحقاً';
-  }
-  return 'تعذّر تسجيل الدخول، تحقق من البيانات والاتصال';
-}
-
-export async function redirectIfLoggedIn() {
-  if (!isConfigReady()) {
-    showConfigWarning();
-    return;
-  }
   try {
-    const session = await getSession();
-    if (session) window.location.replace('./dashboard.html');
+    await getSupabase().auth.signOut({ scope: 'local' });
   } catch (err) {
-    logDev(err);
+    logDev('sign out', err);
   }
+  window.location.reload();
+}
+
+export function adminPinErrorMessage(err) {
+  const code = String(err?.code || '');
+  if (code === 'invalid_pin') return 'الرقم السري غير صحيح';
+  if (code === 'locked') return err.message || 'محاولات كثيرة غير صحيحة. انتظر 15 دقيقة ثم حاول مرة أخرى.';
+  if (code === 'not_configured') return 'لم يُضبط الرقم السري لإدارة المنصة بعد';
+  if (code === 'weak_pin') return err.message || 'الرقم السري الجديد غير مقبول';
+  if (code === 'network') return 'تعذّر الاتصال بالخادم';
+  return 'تعذّر فتح وضع الإدارة، حاول لاحقاً';
 }

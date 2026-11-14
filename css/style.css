@@ -1998,6 +1998,47 @@ table.data-table {
   .pe-admin-event__actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
+/* =====================================================================
+   وضع الإدارة + مشاركة الأهالي في الرئيسية
+   ===================================================================== */
+.admin-chip { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.8rem; font-weight: 700; color: var(--success); }
+.admin-btn { white-space: nowrap; }
+.admin-btn--exit { color: var(--danger); }
+.admin-pin-input { font-size: 1.3rem; letter-spacing: 0.35em; text-align: center; }
+.admin-lock .btn { margin-top: 0.7rem; }
+.share-feature {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 1.2rem;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  background: linear-gradient(135deg, var(--primary-soft), var(--accent-soft));
+}
+.share-feature__icon { width: 64px; height: 64px; border-radius: 18px; flex-shrink: 0; display: grid; place-items: center; background: var(--primary); color: #fff; }
+.share-feature__text { flex: 1 1 260px; min-width: 0; }
+.share-feature__text h2 { margin: 0; font-size: 1.25rem; }
+.share-feature__text p { margin: 0.25rem 0 0; color: var(--muted); }
+.share-feature__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.home-records-title { margin: 1.4rem 0 0.8rem; font-size: 1.05rem; }
+.redirect-note { padding: 2rem; text-align: center; }
+
+@media (max-width: 560px) {
+  .topbar__print { display: none; }
+  .topbar__actions { gap: 0.4rem; }
+  .admin-btn { padding-inline: 0.55rem; }
+  .share-feature { padding: 1rem; }
+  .share-feature__actions,
+  .share-feature__actions .btn { width: 100%; }
+  .topbar .admin-btn--exit .admin-btn__label { display: none; }
+}
+
+@media (max-width: 360px) {
+  .topbar .admin-btn .admin-btn__label { display: none; }
+}
+
 @media print {
   body { background: #fff !important; color: #000 !important; }
   .sidebar,

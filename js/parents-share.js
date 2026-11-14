@@ -7,7 +7,7 @@ import { listEvents, submitParentPost } from './parents-service.js';
 import { isMissingSchemaError } from './file-manager.js';
 import { PARENT_MAX_IMAGES, PARENT_MAX_IMAGE_SIZE } from './config.js';
 import { validateParentImage } from './validators.js';
-import { setButtonLoading, field } from './ui.js';
+import { setButtonLoading, field, copyShareLinkButton } from './ui.js';
 import { createEl, clearElement, formatBytes, logDev } from './utils.js';
 import { icon } from './icons.js';
 
@@ -17,20 +17,21 @@ const MAX_NAME = 80;
 const MAX_COMMENT = 2000;
 const MAX_SIDE = 2560;
 
-bootPublicPage({ title: 'أرسل مشاركتك' }, async (ctx) => {
+bootPublicPage({ title: 'مشاركة الأهالي' }, async (ctx) => {
   const root = ctx.content;
   root.appendChild(
     createEl('section', { className: 'pub-page-head' }, [
       createEl('span', { className: 'pub-page-head__icon' }, [icon('camera', { size: 30 })]),
       createEl('div', { className: 'pub-page-head__text' }, [
-        createEl('h1', { textContent: 'شاركونا في «بعيون أهالينا»' }),
-        createEl('p', { textContent: 'أرسلوا صوركم وانطباعاتكم عن أنشطة المدرسة ومناسباتها، دون الحاجة إلى حساب.' }),
+        createEl('h1', { textContent: 'مشاركة الأهالي' }),
+        createEl('p', { textContent: 'أرسلوا صوركم وانطباعاتكم عن أنشطة المدرسة ومناسباتها، دون الحاجة إلى حساب أو رقم سري.' }),
       ]),
       createEl('div', { className: 'pub-page-head__actions' }, [
         createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost' }, [
           icon('heart', { size: 18 }),
           createEl('span', { textContent: 'تصفح المشاركات' }),
         ]),
+        copyShareLinkButton('btn btn--ghost'),
       ]),
     ])
   );

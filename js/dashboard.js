@@ -1,14 +1,16 @@
 /**
- * dashboard.js — لوحة التحكم: أقسام السجل الإلكتروني الـ 12 بالترتيب مع عدد الملفات
+ * dashboard.js — الصفحة الرئيسية (للجميع دون دخول): مشاركة الأهالي، أقسام المنصة،
+ * وأقسام السجل الإلكتروني الـ 12 بالترتيب مع عدد الملفات.
  */
-import { bootProtectedPage } from './app.js';
+import { bootPage } from './app.js';
 import { getSupabase } from './supabase-client.js';
 import { SECTIONS, PLATFORM_PAGES } from './sections-config.js';
 import { fetchSectionFileCounts, isMissingSchemaError, renderSchemaNotice } from './file-manager.js';
+import { copyShareLinkButton } from './ui.js';
 import { createEl, logDev } from './utils.js';
 import { icon } from './icons.js';
 
-bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
+bootPage({ title: 'الرئيسية' }, async (ctx) => {
   const root = ctx.content;
 
   root.appendChild(
@@ -27,11 +29,63 @@ bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
         }),
         createEl('p', {
           className: 'hero-panel__sub',
-          textContent: 'السجل الإلكتروني المتكامل لرائدة النشاط — اختاري القسم لعرض ملفاته أو إضافة ملفات جديدة.',
+          textContent: ctx.canEdit
+            ? 'وضع الإدارة مفعّل — اختاري القسم لعرض ملفاته أو إضافة ملفات جديدة.'
+            : 'السجل الإلكتروني المتكامل لرائدة النشاط — اختر القسم لعرض ملفاته واستعراضها وتنزيلها.',
         }),
       ]),
     ])
   );
+
+  root.appendChild(
+    createEl('section', { className: 'share-feature', 'aria-label': 'مشاركة الأهالي' }, [
+      createEl('span', { className: 'share-feature__icon' }, [icon('camera', { size: 34 })]),
+      createEl('div', { className: 'share-feature__text' }, [
+        createEl('h2', { textContent: 'مشاركة الأهالي' }),
+        createEl('p', {
+          textContent:
+            'أولياء الأمور الكرام: شاركونا صوركم وانطباعاتكم عن أنشطة المدرسة ومناسباتها دون حساب. تُنشر المشاركات بعد اعتمادها من رائدة النشاط.',
+        }),
+      ]),
+      createEl('div', { className: 'share-feature__actions' }, [
+        createEl('a', { href: './parents-share.html', className: 'btn btn--primary' }, [
+          icon('camera', { size: 18 }),
+          createEl('span', { textContent: 'فتح صفحة المشاركة' }),
+        ]),
+        copyShareLinkButton('btn btn--ghost'),
+      ]),
+    ])
+  );
+
+  const pendingEl = createEl('span', { className: 'platform-link__badge', hidden: true });
+  root.appendChild(
+    createEl('section', { className: 'section platform-links' }, [
+      createEl('h3', { className: 'section__title', textContent: 'أقسام المنصة' }),
+      createEl(
+        'div',
+        { className: 'platform-links__grid' },
+        PLATFORM_PAGES.map((p) =>
+          createEl('a', { href: p.href, className: 'platform-link' }, [
+            createEl('span', { className: 'platform-link__icon' }, [icon(p.icon, { size: 22 })]),
+            createEl('span', { className: 'platform-link__label', textContent: p.label }),
+            p.key === 'parents' ? pendingEl : null,
+          ])
+        )
+      ),
+    ])
+  );
+
+  if (ctx.canEdit) {
+    getSupabase()
+      .from('parent_posts')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'pending')
+      .then(({ count, error }) => {
+        if (error || !count) return;
+        pendingEl.textContent = `${count} بانتظار المراجعة`;
+        pendingEl.hidden = false;
+      });
+  }
 
   const notice = createEl('div');
   root.appendChild(notice);
@@ -39,6 +93,7 @@ bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
   const summary = createEl('div', { className: 'dash-summary' });
   root.appendChild(summary);
 
+  root.appendChild(createEl('h3', { className: 'section__title home-records-title', textContent: 'السجل الإلكتروني لرائدة النشاط' }));
   const grid = createEl('section', { className: 'section-grid', 'aria-label': 'أقسام السجل الإلكتروني' });
   const countEls = {};
   SECTIONS.forEach((s, i) => {
@@ -67,33 +122,6 @@ bootProtectedPage({ title: 'لوحة التحكم' }, async (ctx) => {
     );
   });
   root.appendChild(grid);
-
-  const pendingEl = createEl('span', { className: 'platform-link__badge', hidden: true });
-  const platform = createEl('section', { className: 'section platform-links' }, [
-    createEl('h3', { className: 'section__title', textContent: 'أقسام المنصة' }),
-    createEl(
-      'div',
-      { className: 'platform-links__grid' },
-      PLATFORM_PAGES.map((p) =>
-        createEl('a', { href: p.href, className: 'platform-link' }, [
-          createEl('span', { className: 'platform-link__icon' }, [icon(p.icon, { size: 22 })]),
-          createEl('span', { className: 'platform-link__label', textContent: p.label }),
-          p.key === 'parents' ? pendingEl : null,
-        ])
-      )
-    ),
-  ]);
-  root.appendChild(platform);
-
-  getSupabase()
-    .from('parent_posts')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending')
-    .then(({ count, error }) => {
-      if (error || !count) return;
-      pendingEl.textContent = `${count} بانتظار المراجعة`;
-      pendingEl.hidden = false;
-    });
 
   let counts = null;
   try {

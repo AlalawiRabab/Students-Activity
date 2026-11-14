@@ -1,11 +1,10 @@
 /**
  * competitions.js — المسابقات: رفع ملفات لكل مسابقة (عنوان + وصف مختصر اختياري)
  * - للزوار: عرض المسابقات المنشورة وفتح ملفاتها وتنزيلها دون تسجيل دخول.
- * - لرائدة النشاط: رفع/تعديل/إخفاء/حذف — تفرضها RLS وسياسات التخزين في الخادم.
+ * - في وضع الإدارة (الرقم السري): رفع/تعديل/نشر/إخفاء/حذف — تفرضها RLS وسياسات التخزين في الخادم.
  * - المسابقات والملفات السابقة تبقى كما هي وتظهر بالطريقة الجديدة نفسها.
  */
-import { bootPublicPage } from './app.js';
-import { isFeatureManager } from './auth.js';
+import { bootPage } from './app.js';
 import { STORAGE_BUCKET } from './config.js';
 import { getSupabase } from './supabase-client.js';
 import { writeAudit } from './supabase-service.js';
@@ -135,17 +134,17 @@ async function deleteCompetition(comp) {
 // ---------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------
-bootPublicPage({ title: 'المسابقات', adminShell: true }, async (ctx) => {
+bootPage({ title: 'المسابقات' }, async (ctx) => {
   const root = ctx.content;
-  const admin = ctx.canEdit && (await isFeatureManager());
+  const admin = ctx.canEdit;
   let rows = [];
   let sortKey = 'newest';
 
   root.appendChild(
-    createEl('section', { className: ctx.isPublic ? 'pub-page-head' : 'section-header comp-head' }, [
-      createEl('span', { className: ctx.isPublic ? 'pub-page-head__icon' : 'section-header__icon' }, [icon('trophy', { size: 30 })]),
-      createEl('div', { className: ctx.isPublic ? 'pub-page-head__text' : 'section-header__text' }, [
-        ctx.isPublic ? createEl('h1', { textContent: 'المسابقات' }) : createEl('h2', { textContent: 'المسابقات' }),
+    createEl('section', { className: 'section-header comp-head' }, [
+      createEl('span', { className: 'section-header__icon' }, [icon('trophy', { size: 30 })]),
+      createEl('div', { className: 'section-header__text' }, [
+        createEl('h2', { textContent: 'المسابقات' }),
         createEl('p', {
           textContent: admin
             ? 'ارفعي ملفات كل مسابقة (PDF، صور، Word، PowerPoint) مع عنوان ووصف مختصر. المسابقات غير منشورة افتراضياً؛ راجعي ملفاتها ثم اختاري «نشر للزوار».'

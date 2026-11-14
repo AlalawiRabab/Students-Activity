@@ -2,10 +2,18 @@
  * ui.js — Toast, Modal, Layout, Theme
  */
 import { createEl, clearElement, logDev } from './utils.js';
-import { canEdit, isAdmin, isFeatureManager, logout } from './auth.js';
+import {
+  canEdit,
+  isAdmin,
+  isFeatureManager,
+  enterAdminMode,
+  exitAdminMode,
+  adminPinErrorMessage,
+} from './auth.js';
 import { userMessageFromError } from './supabase-service.js';
-import { SECTIONS, PLATFORM_PAGES } from './sections-config.js';
+import { SECTIONS, PLATFORM_PAGES, ADMIN_PAGES } from './sections-config.js';
 import { getSupabase } from './supabase-client.js';
+import { PARENTS_SHARE_URL } from './config.js';
 import { icon } from './icons.js';
 
 const THEME_KEY = 'sap-theme';
@@ -206,7 +214,7 @@ export function renderPagination(container, { page, pageSize, total, onChange })
 }
 
 function currentPageFile() {
-  return (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
+  return (location.pathname.split('/').pop() || 'index.html').toLowerCase();
 }
 
 function navLink(href, label, iconName, activeFile, extra = null) {
@@ -226,10 +234,13 @@ function navLink(href, label, iconName, activeFile, extra = null) {
   return a;
 }
 
-function buildNav() {
+function buildNav(adminMode) {
   const activeFile = currentPageFile();
   const nav = createEl('nav', { className: 'sidebar__nav' });
-  nav.appendChild(navLink('./dashboard.html', 'لوحة التحكم', 'home', activeFile));
+  nav.appendChild(navLink('./index.html', 'الرئيسية', 'home', activeFile));
+
+  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'أقسام المنصة' }));
+  PLATFORM_PAGES.forEach((p) => nav.appendChild(navLink(p.href, p.label, p.icon, activeFile)));
 
   nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'السجل الإلكتروني لرائدة النشاط' }));
   SECTIONS.forEach((s, i) => {
@@ -244,17 +255,15 @@ function buildNav() {
     );
   });
 
-  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'أقسام المنصة' }));
-  PLATFORM_PAGES.forEach((p) => {
-    const badge = p.key === 'parents'
-      ? createEl('span', { className: 'nav-link__badge', id: 'nav-parents-pending', hidden: true })
-      : null;
-    nav.appendChild(navLink(p.href, p.label, p.icon, activeFile, badge));
-  });
-
-  nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'عام' }));
-  nav.appendChild(navLink('./index.html', 'الواجهة العامة', 'globe', activeFile));
-  nav.appendChild(navLink('./settings.html', 'الإعدادات', 'settings', activeFile));
+  if (adminMode) {
+    nav.appendChild(createEl('div', { className: 'nav-group__label', textContent: 'الإدارة' }));
+    ADMIN_PAGES.forEach((p) => {
+      const badge = p.key === 'parents_review'
+        ? createEl('span', { className: 'nav-link__badge', id: 'nav-parents-pending', hidden: true })
+        : null;
+      nav.appendChild(navLink(p.href, p.label, p.icon, activeFile, badge));
+    });
+  }
 
   nav.addEventListener('click', (e) => {
     if (e.target.closest('a')) document.body.classList.remove('sidebar-open');
@@ -267,12 +276,14 @@ export function mountShell({
   profile,
   settings,
   showPrint = true,
+  adminMode = false,
 }) {
   initTheme();
   const app = document.getElementById('app');
   if (!app) return;
 
   clearElement(app);
+  app.className = '';
   const sidebar = createEl('aside', {
     className: 'sidebar',
     id: 'sidebar',
@@ -298,23 +309,9 @@ export function mountShell({
     ])
   );
 
-  const nav = buildNav();
+  const nav = buildNav(adminMode);
 
-  const logoutBtn = createEl('button', {
-    type: 'button',
-    className: 'btn btn--ghost sidebar__logout',
-  }, [icon('logout', { size: 18 }), createEl('span', { textContent: 'تسجيل الخروج' })]);
-  logoutBtn.addEventListener('click', async () => {
-    const ok = await confirmDialog({
-      title: 'تسجيل الخروج',
-      message: 'هل تريد تسجيل الخروج من المنصة؟',
-      confirmText: 'خروج',
-      danger: true,
-    });
-    if (ok) await logout();
-  });
-
-  sidebar.append(brand, nav, logoutBtn);
+  sidebar.append(brand, nav, adminToggleButton(adminMode, 'btn btn--ghost sidebar__logout'));
 
   const main = createEl('div', { className: 'main' });
   const header = createEl('header', { className: 'topbar' });
@@ -333,12 +330,15 @@ export function mountShell({
   });
   const heading = createEl('div', { className: 'topbar__titles' }, [
     createEl('h1', { textContent: title || '' }),
-    createEl('p', {
-      className: 'muted',
-      textContent: profile?.full_name
-        ? `${profile.full_name} · ${roleLabel(profile.role)}`
-        : '',
-    }),
+    adminMode
+      ? createEl('p', { className: 'admin-chip' }, [
+          icon('unlock', { size: 14 }),
+          createEl('span', { textContent: 'وضع الإدارة مفعّل' }),
+        ])
+      : createEl('p', {
+          className: 'muted',
+          textContent: `رائدة النشاط / ${settings?.leader_name || 'إيمان الرحيلي'}`,
+        }),
   ]);
   right.append(menuBtn, heading);
 
@@ -355,12 +355,13 @@ export function mountShell({
   if (showPrint) {
     const printBtn = createEl('button', {
       type: 'button',
-      className: 'btn btn--ghost btn--sm no-print',
+      className: 'btn btn--ghost btn--sm no-print topbar__print',
       textContent: 'طباعة',
     });
     printBtn.addEventListener('click', () => window.print());
     left.appendChild(printBtn);
   }
+  left.appendChild(adminToggleButton(adminMode, 'btn btn--ghost btn--sm no-print admin-btn'));
 
   header.append(right, left);
   const content = createEl('main', {
@@ -376,15 +377,168 @@ export function mountShell({
   main.append(header, content);
   app.append(sidebar, main, backdrop);
 
-  if (canEdit(profile)) refreshParentsPendingBadge();
+  if (adminMode) refreshParentsPendingBadge();
 
   return {
     content,
-    canEdit: canEdit(profile),
-    isAdmin: isAdmin(profile),
+    canEdit: adminMode && canEdit(profile),
+    isAdmin: adminMode && isAdmin(profile),
     profile,
     settings,
   };
+}
+
+// ---------------------------------------------------------------------
+// وضع الإدارة (الرقم السري يتحقق منه الخادم؛ لا يُحفظ في المتصفح)
+// ---------------------------------------------------------------------
+function adminToggleButton(adminMode, className) {
+  if (adminMode) {
+    const btn = createEl('button', { type: 'button', className: `${className} admin-btn--exit`, title: 'الخروج من وضع الإدارة' }, [
+      icon('logout', { size: 18 }),
+      createEl('span', { className: 'admin-btn__label', textContent: 'الخروج من وضع الإدارة' }),
+    ]);
+    btn.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: 'الخروج من وضع الإدارة',
+        message: 'ستُخفى أدوات الإدارة وتنتهي صلاحيتها على هذا الجهاز فوراً.',
+        confirmText: 'خروج',
+        danger: true,
+      });
+      if (ok) await exitAdminMode();
+    });
+    return btn;
+  }
+  const btn = createEl('button', { type: 'button', className, title: 'إدارة المنصة' }, [
+    icon('lock', { size: 18 }),
+    createEl('span', { className: 'admin-btn__label', textContent: 'إدارة المنصة' }),
+  ]);
+  btn.addEventListener('click', () => openAdminPinDialog());
+  return btn;
+}
+
+export function openAdminPinDialog() {
+  const form = createEl('form', { className: 'form-grid admin-pin-form', novalidate: true });
+  const alertBox = createEl('div', { className: 'alert alert--error', role: 'alert' });
+  const input = createEl('input', {
+    className: 'input admin-pin-input',
+    type: 'password',
+    inputmode: 'numeric',
+    autocomplete: 'off',
+    maxlength: '12',
+    dir: 'ltr',
+    'aria-label': 'الرقم السري',
+    required: true,
+  });
+  const submit = createEl('button', { type: 'submit', className: 'btn btn--primary' }, [
+    icon('unlock', { size: 18 }),
+    createEl('span', { textContent: 'دخول وضع الإدارة' }),
+  ]);
+  form.append(
+    createEl('p', {
+      className: 'muted',
+      textContent: 'أدخلي الرقم السري الخاص برائدة النشاط لتفعيل أدوات الإضافة والتعديل والحذف والنشر والاعتماد.',
+    }),
+    alertBox,
+    field('الرقم السري', input),
+    createEl('div', { className: 'modal__actions' }, [submit])
+  );
+  const { close } = openModal({ title: 'إدارة المنصة', contentNode: form });
+  setTimeout(() => input.focus(), 30);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    alertBox.classList.remove('is-visible');
+    const pin = input.value.trim();
+    if (!/^[0-9]{6,12}$/.test(pin)) {
+      alertBox.textContent = 'الرقم السري من 6 إلى 12 رقماً';
+      alertBox.classList.add('is-visible');
+      return;
+    }
+    setButtonLoading(submit, true, 'جارٍ التحقق...');
+    try {
+      await enterAdminMode(pin);
+      input.value = '';
+      close();
+      showToast('تم تفعيل وضع الإدارة', 'success');
+      setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      logDev(err);
+      input.value = '';
+      alertBox.textContent = adminPinErrorMessage(err);
+      alertBox.classList.add('is-visible');
+      setButtonLoading(submit, false);
+      submit.replaceChildren(icon('unlock', { size: 18 }), createEl('span', { textContent: 'دخول وضع الإدارة' }));
+      input.focus();
+    }
+  });
+}
+
+/** محتوى الصفحات الإدارية البحتة للزائر: لا بيانات، فقط طلب وضع الإدارة */
+export function renderAdminLock(container) {
+  const btn = createEl('button', { type: 'button', className: 'btn btn--primary' }, [
+    icon('lock', { size: 18 }),
+    createEl('span', { textContent: 'إدارة المنصة' }),
+  ]);
+  btn.addEventListener('click', () => openAdminPinDialog());
+  container.appendChild(
+    createEl('div', { className: 'notice notice--warn admin-lock' }, [
+      icon('lock', { size: 22 }),
+      createEl('div', {}, [
+        createEl('strong', { textContent: 'هذه الصفحة متاحة في وضع الإدارة فقط' }),
+        createEl('p', { textContent: 'يلزم الرقم السري الخاص برائدة النشاط لعرض هذه الصفحة.' }),
+        btn,
+      ]),
+    ])
+  );
+}
+
+// ---------------------------------------------------------------------
+// رابط مشاركة الأهالي
+// ---------------------------------------------------------------------
+export async function copyText(text) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    logDev('clipboard', err);
+  }
+  const ta = createEl('textarea', { readonly: true, className: 'visually-hidden' });
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  ta.remove();
+  return ok;
+}
+
+export function copyShareLinkButton(className = 'btn btn--ghost') {
+  const btn = createEl('button', { type: 'button', className: `${className} copy-share-btn` }, [
+    icon('copy', { size: 18 }),
+    createEl('span', { textContent: 'نسخ رابط مشاركة الأهالي' }),
+  ]);
+  btn.addEventListener('click', async () => {
+    if (await copyText(PARENTS_SHARE_URL)) {
+      showToast(`تم نسخ رابط مشاركة الأهالي: ${PARENTS_SHARE_URL}`, 'success');
+      return;
+    }
+    const linkInput = createEl('input', { className: 'input', readonly: true, dir: 'ltr', value: PARENTS_SHARE_URL });
+    openModal({
+      title: 'رابط مشاركة الأهالي',
+      contentNode: createEl('div', { className: 'form-grid' }, [
+        createEl('p', { textContent: 'تعذّر النسخ تلقائياً؛ انسخ الرابط من الحقل:' }),
+        linkInput,
+      ]),
+    });
+    linkInput.select();
+  });
+  return btn;
 }
 
 /** عدد مشاركات «بعيون أهالينا» المنتظرة بجانب الرابط (يتجاهل الخطأ قبل تشغيل 004) */
@@ -404,12 +558,6 @@ export async function refreshParentsPendingBadge() {
     logDev('pending badge', err);
     badge.hidden = true;
   }
-}
-
-function roleLabel(role) {
-  if (role === 'admin') return 'مدير';
-  if (role === 'activity_leader') return 'رائدة نشاط';
-  return 'عرض فقط';
 }
 
 export function buildToolbar(parent, controls = []) {

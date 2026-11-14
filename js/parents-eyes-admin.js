@@ -1,9 +1,10 @@
 /**
  * parents-eyes-admin.js — إدارة «بعيون أهالينا» لرائدة النشاط:
  * مراجعة المشاركات (بانتظار المراجعة / منشورة / مرفوضة) وإدارة المناسبات.
- * كل الإجراءات تخضع لـ RLS (is_editor) في الخادم؛ إخفاء الأزرار هنا للتنظيم فقط.
+ * صفحة إدارية بحتة: الزائر لا يرى أي بيانات. كل الإجراءات تخضع لـ RLS (is_feature_manager مع
+ * جلسة إدارة فُتحت بالرقم السري) في الخادم؛ إخفاء الأزرار هنا للتنظيم فقط.
  */
-import { bootProtectedPage } from './app.js';
+import { bootAdminPage } from './app.js';
 import { isFeatureManager } from './auth.js';
 import {
   STATUS_LABELS,
@@ -22,25 +23,28 @@ import {
 } from './parents-service.js';
 import { postGallery, lazyImage } from './parents-ui.js';
 import { isMissingSchemaError, renderSchemaNotice } from './file-manager.js';
-import { openModal, confirmDialog, setButtonLoading, field, refreshParentsPendingBadge } from './ui.js';
+import { openModal, confirmDialog, setButtonLoading, field, refreshParentsPendingBadge, copyShareLinkButton } from './ui.js';
 import { validateRequired, validateLength, validateParentImage } from './validators.js';
 import { createEl, clearElement, formatDate, logDev } from './utils.js';
 import { icon } from './icons.js';
 
 const STATUSES = ['pending', 'approved', 'rejected'];
 
-bootProtectedPage({ title: 'بعيون أهالينا' }, async (ctx) => {
+bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ctx) => {
   const root = ctx.content;
   root.appendChild(
     createEl('section', { className: 'section-header' }, [
       createEl('div', { className: 'section-header__nav no-print' }, [
-        createEl('a', { href: './dashboard.html', className: 'btn btn--ghost back-btn' }, [
+        createEl('a', { href: './index.html', className: 'btn btn--ghost back-btn' }, [
           icon('chevronRight', { size: 18 }),
-          createEl('span', { textContent: 'العودة إلى لوحة التحكم' }),
+          createEl('span', { textContent: 'العودة إلى الرئيسية' }),
         ]),
-        createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost btn--sm' }, [
-          icon('globe', { size: 16 }),
-          createEl('span', { textContent: 'عرض الصفحة العامة' }),
+        createEl('div', { className: 'section-header__steps' }, [
+          createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost btn--sm' }, [
+            icon('globe', { size: 16 }),
+            createEl('span', { textContent: 'عرض الصفحة العامة' }),
+          ]),
+          copyShareLinkButton('btn btn--ghost btn--sm'),
         ]),
       ]),
       createEl('div', { className: 'section-header__main' }, [
@@ -57,8 +61,8 @@ bootProtectedPage({ title: 'بعيون أهالينا' }, async (ctx) => {
     root.appendChild(createEl('div', { className: 'notice notice--warn' }, [
       icon('lock', { size: 22 }),
       createEl('div', {}, [
-        createEl('strong', { textContent: 'هذه الصفحة لحساب رائدة النشاط المعتمد فقط' }),
-        createEl('p', { textContent: 'إدارة «بعيون أهالينا» محصورة بحساب رائدة النشاط، ولا تكفي صلاحية المدير.' }),
+        createEl('strong', { textContent: 'هذه الصفحة متاحة في وضع الإدارة فقط' }),
+        createEl('p', { textContent: 'انتهت جلسة الإدارة أو لم تُفعَّل؛ أعيدي إدخال الرقم السري من زر «إدارة المنصة».' }),
       ]),
     ]));
     return;

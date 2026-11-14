@@ -36,9 +36,9 @@ if (!section) {
 
 function buildSectionHeader(sec) {
   const idx = sectionIndex(sec.key);
-  const back = createEl('a', { href: './dashboard.html', className: 'btn btn--ghost back-btn no-print' }, [
+  const back = createEl('a', { href: './index.html', className: 'btn btn--ghost back-btn no-print' }, [
     icon('chevronRight', { size: 18 }),
-    createEl('span', { textContent: 'العودة إلى لوحة التحكم' }),
+    createEl('span', { textContent: 'العودة إلى الرئيسية' }),
   ]);
   const prev = SECTIONS[idx - 2];
   const next = SECTIONS[idx];
