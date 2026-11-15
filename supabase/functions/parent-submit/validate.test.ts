@@ -38,55 +38,62 @@ Deno.test('parseSubmission: تعليق فقط مقبول', async () => {
   }
 });
 
-Deno.test('parseSubmission: صورة فقط مقبولة والاسم اختياري', async () => {
-  const r = await parseSubmission(form({}, [new Blob([JPEG])]));
+Deno.test('parseSubmission: صورة فقط مقبولة مع اسم إلزامي', async () => {
+  const r = await parseSubmission(form({ author_name: 'سارة' }, [new Blob([JPEG])]));
   assertEquals(r.kind, 'ok');
   if (r.kind === 'ok') {
-    assertEquals(r.authorName, null);
+    assertEquals(r.authorName, 'سارة');
     assertEquals(r.images[0].ext, 'jpg');
   }
 });
 
+Deno.test('parseSubmission: الاسم إلزامي (فارغ أو مسافات)', async () => {
+  const empty = await parseSubmission(form({ comment: 'فعالية', author_name: '' }));
+  assertEquals(empty.kind === 'error' && empty.error, 'name_required');
+  const spaces = await parseSubmission(form({ comment: 'فعالية', author_name: '   ' }));
+  assertEquals(spaces.kind === 'error' && spaces.error, 'name_required');
+});
+
 Deno.test('parseSubmission: يرفض المشاركة الفارغة', async () => {
-  const r = await parseSubmission(form({ comment: '   ' }));
+  const r = await parseSubmission(form({ comment: '   ', author_name: 'أم سارة' }));
   assertEquals(r.kind === 'error' && r.error, 'empty_submission');
 });
 
 Deno.test('parseSubmission: الإقرار إلزامي', async () => {
-  const r = await parseSubmission(form({ consent: '', comment: 'x' }));
+  const r = await parseSubmission(form({ consent: '', comment: 'x', author_name: 'أم سارة' }));
   assertEquals(r.kind === 'error' && r.error, 'consent_required');
 });
 
 Deno.test('parseSubmission: الحقل الخفي يوقف الحفظ', async () => {
-  const r = await parseSubmission(form({ website: 'http://spam', comment: 'x' }));
+  const r = await parseSubmission(form({ website: 'http://spam', comment: 'x', author_name: 'أم سارة' }));
   assertEquals(r.kind, 'honeypot');
 });
 
 Deno.test('parseSubmission: الإرسال الفوري يُرفض', async () => {
-  const r = await parseSubmission(form({ elapsed_ms: '300', comment: 'x' }));
+  const r = await parseSubmission(form({ elapsed_ms: '300', comment: 'x', author_name: 'أم سارة' }));
   assertEquals(r.kind === 'error' && r.error, 'too_fast');
 });
 
 Deno.test('parseSubmission: أكثر من 5 صور مرفوض', async () => {
   const six = Array.from({ length: 6 }, () => new Blob([JPEG]));
-  const r = await parseSubmission(form({}, six));
+  const r = await parseSubmission(form({ author_name: 'أم سارة' }, six));
   assertEquals(r.kind === 'error' && r.error, 'too_many_images');
 });
 
 Deno.test('parseSubmission: صورة أكبر من 5 م.ب مرفوضة', async () => {
   const big = new Uint8Array(MAX_IMAGE_BYTES + 1);
   big.set(JPEG);
-  const r = await parseSubmission(form({}, [new Blob([big])]));
+  const r = await parseSubmission(form({ author_name: 'أم سارة' }, [new Blob([big])]));
   assertEquals(r.kind === 'error' && r.error, 'image_too_large');
 });
 
 Deno.test('parseSubmission: ملف بامتداد صورة ومحتوى آخر مرفوض', async () => {
-  const r = await parseSubmission(form({}, [new Blob(['<html><script>x</script>'])]));
+  const r = await parseSubmission(form({ author_name: 'أم سارة' }, [new Blob(['<html><script>x</script>'])]));
   assertEquals(r.kind === 'error' && r.error, 'invalid_image');
 });
 
 Deno.test('parseSubmission: معرّف مناسبة غير صالح', async () => {
-  const r = await parseSubmission(form({ event_id: "1' or '1'='1", comment: 'x' }));
+  const r = await parseSubmission(form({ event_id: "1' or '1'='1", comment: 'x', author_name: 'أم سارة' }));
   assertEquals(r.kind === 'error' && r.error, 'invalid_event');
 });
 

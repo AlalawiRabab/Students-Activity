@@ -54,7 +54,7 @@ export type ParseResult =
   | {
       kind: 'ok';
       eventId: string;
-      authorName: string | null;
+      authorName: string;
       comment: string | null;
       images: ValidImage[];
     };
@@ -86,6 +86,9 @@ export async function parseSubmission(form: FormData): Promise<ParseResult> {
   }
 
   const authorName = cleanText(form.get('author_name'), { multiline: false });
+  if (!authorName) {
+    return fail('name_required', 'يرجى كتابة اسم الطالبة أو ولية أمر الطالبة');
+  }
   if (authorName.length > MAX_NAME_CHARS) {
     return fail('name_too_long', `الاسم يجب ألا يتجاوز ${MAX_NAME_CHARS} حرفاً`);
   }
@@ -119,7 +122,7 @@ export async function parseSubmission(form: FormData): Promise<ParseResult> {
   return {
     kind: 'ok',
     eventId: eventId.toLowerCase(),
-    authorName: authorName || null,
+    authorName,
     comment: comment || null,
     images,
   };

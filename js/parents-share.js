@@ -3,7 +3,7 @@
  * التحقق هنا للراحة فقط؛ التحقق الفعلي والحد من الإرسال المتكرر في Edge Function parent-submit.
  */
 import { bootPublicPage } from './app.js';
-import { listEvents, submitParentPost } from './parents-service.js';
+import { listEvents, submitParentPost, imageObjectUrl } from './parents-service.js';
 import { isMissingSchemaError } from './file-manager.js';
 import { PARENT_MAX_IMAGES, PARENT_MAX_IMAGE_SIZE } from './config.js';
 import { validateParentImage } from './validators.js';
@@ -13,6 +13,7 @@ import { icon } from './icons.js';
 
 export const CONSENT_TEXT = 'أؤكد موافقتي وامتلاكي الإذن بمشاركة الصور المرفقة للنشر في منصة المدرسة';
 export const THANKS_TEXT = 'شكرًا لمشاركتكم، ستظهر بعد مراجعتها واعتمادها من رائدة النشاط';
+export const NAME_REQUIRED_MSG = 'يرجى كتابة اسم الطالبة أو ولية أمر الطالبة';
 const MAX_NAME = 80;
 const MAX_COMMENT = 2000;
 const MAX_SIDE = 2560;
@@ -27,9 +28,13 @@ bootPublicPage({ title: 'مشاركة الأهالي' }, async (ctx) => {
         createEl('p', { textContent: 'أرسلوا صوركم وانطباعاتكم عن أنشطة المدرسة ومناسباتها، دون الحاجة إلى حساب أو رقم سري.' }),
       ]),
       createEl('div', { className: 'pub-page-head__actions' }, [
-        createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost' }, [
-          icon('heart', { size: 18 }),
-          createEl('span', { textContent: 'تصفح المشاركات' }),
+        createEl('a', {
+          href: './parents-eyes.html',
+          className: 'btn btn--primary',
+          title: 'مشاهدة المشاركات المنشورة',
+        }, [
+          icon('eye', { size: 18 }),
+          createEl('span', { textContent: 'مشاهدة المشاركات المنشورة' }),
         ]),
         copyShareLinkButton('btn btn--ghost'),
       ]),
@@ -65,6 +70,7 @@ function renderForm(host, events) {
   const requested = new URLSearchParams(location.search).get('event');
   /** @type {{ file: File, url: string }[]} */
   let images = [];
+  let coverToken = 0;
 
   const form = createEl('form', { className: 'form-grid pe-form', novalidate: true });
   const alertBox = createEl('div', { className: 'alert alert--error', role: 'alert' });
@@ -76,11 +82,81 @@ function renderForm(host, events) {
   if (requested && events.some((e) => e.id === requested)) eventSel.value = requested;
   else if (events.length === 1) eventSel.value = events[0].id;
 
+  const eventPreview = createEl('div', {
+    className: 'pe-event-preview',
+    hidden: true,
+    'aria-live': 'polite',
+  });
+
+  function renderEventPreview() {
+    const token = ++coverToken;
+    clearElement(eventPreview);
+    const ev = events.find((e) => e.id === eventSel.value);
+    if (!ev) {
+      eventPreview.hidden = true;
+      return;
+    }
+    eventPreview.hidden = false;
+
+    const body = createEl('div', { className: 'pe-event-preview__body' }, [
+      createEl('strong', { className: 'pe-event-preview__title', textContent: ev.title }),
+      ev.description
+        ? createEl('p', { className: 'pe-event-preview__desc', textContent: ev.description })
+        : null,
+    ]);
+
+    if (!ev.cover_path) {
+      eventPreview.appendChild(body);
+      return;
+    }
+
+    const media = createEl('div', {
+      className: 'pe-event-preview__cover pe-event-preview__cover--loading',
+      'aria-busy': 'true',
+    }, [
+      createEl('span', { className: 'spinner spinner--dark', 'aria-hidden': 'true' }),
+    ]);
+    eventPreview.append(media, body);
+
+    // إخفاء الغلاف السابق أثناء التحميل؛ وإلغاء الطلبات السابقة عند تغيير المناسبة
+    (async () => {
+      try {
+        const url = await imageObjectUrl(ev.cover_path);
+        if (token !== coverToken || !eventPreview.isConnected) return;
+        const img = createEl('img', {
+          src: url,
+          alt: `صورة مناسبة ${ev.title}`,
+          decoding: 'async',
+        });
+        const show = () => {
+          if (token !== coverToken || !media.isConnected) return;
+          media.replaceChildren(img);
+          media.classList.remove('pe-event-preview__cover--loading');
+          media.removeAttribute('aria-busy');
+        };
+        img.addEventListener('load', show);
+        img.addEventListener('error', () => {
+          if (token !== coverToken) return;
+          media.remove();
+        });
+        if (img.complete && img.naturalWidth) show();
+      } catch (err) {
+        logDev('event cover', err);
+        if (token !== coverToken) return;
+        media.remove();
+      }
+    })();
+  }
+
+  eventSel.addEventListener('change', renderEventPreview);
+
   const nameInput = createEl('input', {
     className: 'input',
     maxlength: String(MAX_NAME),
     autocomplete: 'name',
-    placeholder: 'مثال: أم سارة',
+    required: true,
+    'aria-required': 'true',
+    placeholder: 'مثال: سارة / أم سارة',
   });
 
   const comment = createEl('textarea', {
@@ -170,7 +246,8 @@ function renderForm(host, events) {
   form.append(
     alertBox,
     field('المناسبة', eventSel),
-    field('اسم المشارك (اختياري)', nameInput, 'سيظهر هذا الاسم مع مشاركتك عند نشرها. اتركه فارغاً لتظهر باسم «ولي أمر».'),
+    eventPreview,
+    field('اسم الطالبة / ولية أمر الطالبة', nameInput, 'سيظهر الاسم مع المشاركة بعد اعتمادها'),
     createEl('label', { className: 'field' }, [
       createEl('span', { className: 'field__label', textContent: 'التعليق أو وصف المشاركة' }),
       comment,
@@ -195,6 +272,7 @@ function renderForm(host, events) {
     createEl('div', { className: 'modal__actions' }, [submit])
   );
   host.appendChild(form);
+  renderEventPreview();
 
   function showAlert(msg) {
     alertBox.textContent = msg;
@@ -206,16 +284,18 @@ function renderForm(host, events) {
     e.preventDefault();
     alertBox.classList.remove('is-visible');
     const text = comment.value.trim();
+    const authorName = nameInput.value.trim();
     if (!eventSel.value) return showAlert('اختر المناسبة');
+    if (!authorName) return showAlert(NAME_REQUIRED_MSG);
+    if (authorName.length > MAX_NAME) return showAlert(`الاسم يجب ألا يتجاوز ${MAX_NAME} حرفاً`);
     if (!text && !images.length) return showAlert('أضف صورة أو تعليقاً على الأقل');
-    if (nameInput.value.trim().length > MAX_NAME) return showAlert(`الاسم يجب ألا يتجاوز ${MAX_NAME} حرفاً`);
     if (!consent.checked) return showAlert('يلزم الإقرار بالموافقة قبل الإرسال');
 
     setButtonLoading(submit, true, 'جارٍ الإرسال...');
     try {
       const fd = new FormData();
       fd.append('event_id', eventSel.value);
-      fd.append('author_name', nameInput.value.trim());
+      fd.append('author_name', authorName);
       fd.append('comment', text);
       fd.append('consent', 'yes');
       fd.append('website', honeypot.value);
@@ -249,7 +329,10 @@ function renderThanks(host, events) {
       createEl('h2', { textContent: THANKS_TEXT }),
       createEl('div', { className: 'row-actions row-actions--center' }, [
         again,
-        createEl('a', { href: './parents-eyes.html', className: 'btn btn--primary', textContent: 'تصفح المشاركات المنشورة' }),
+        createEl('a', { href: './parents-eyes.html', className: 'btn btn--primary' }, [
+          icon('eye', { size: 18 }),
+          createEl('span', { textContent: 'مشاهدة المشاركات المنشورة' }),
+        ]),
       ]),
     ])
   );

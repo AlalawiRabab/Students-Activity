@@ -11,7 +11,7 @@ import {
   approvedCounts,
   imageObjectUrl,
 } from './parents-service.js';
-import { lazyImage, postGallery } from './parents-ui.js';
+import { lazyImage, postMediaLarge } from './parents-ui.js';
 import { isMissingSchemaError } from './file-manager.js';
 import { createEl, formatDate, logDev } from './utils.js';
 import { icon } from './icons.js';
@@ -52,7 +52,7 @@ function pageHeader(ctx) {
     createEl('div', { className: 'pub-page-head__actions' }, [
       createEl('a', { href: './parents-share.html', className: 'btn btn--primary' }, [
         icon('camera', { size: 18 }),
-        createEl('span', { textContent: 'أرسل مشاركتك' }),
+        createEl('span', { textContent: 'إضافة مشاركة' }),
       ]),
       ctx.canEdit
         ? createEl('a', { href: './parents-eyes-admin.html', className: 'btn btn--ghost' }, [
@@ -71,11 +71,11 @@ function openChip(ev) {
   });
 }
 
-function cover(ev, className) {
+function cover(ev, className, fit = 'cover') {
   if (!ev.cover_path) {
     return createEl('div', { className: `${className} ${className}--empty` }, [icon('camera', { size: 34 })]);
   }
-  return lazyImage({ getUrl: () => imageObjectUrl(ev.cover_path), className, alt: '' });
+  return lazyImage({ getUrl: () => imageObjectUrl(ev.cover_path), className, alt: '', fit });
 }
 
 async function renderEvents(ctx, root) {
@@ -97,7 +97,7 @@ async function renderEvents(ctx, root) {
     const n = counts[ev.id] || 0;
     grid.appendChild(
       createEl('a', { href: `./parents-eyes.html?event=${encodeURIComponent(ev.id)}`, className: 'pe-event-card' }, [
-        cover(ev, 'pe-event-card__cover'),
+        cover(ev, 'pe-event-card__cover', 'cover'),
         createEl('div', { className: 'pe-event-card__body' }, [
           createEl('h2', { className: 'pe-event-card__title', textContent: ev.title }),
           ev.description ? createEl('p', { className: 'pe-event-card__desc', textContent: ev.description }) : null,
@@ -114,9 +114,15 @@ async function renderEvents(ctx, root) {
 async function renderEvent(ctx, root, eventId) {
   const ev = await getEvent(eventId);
   root.appendChild(
-    createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost back-btn' }, [
-      icon('chevronRight', { size: 18 }),
-      createEl('span', { textContent: 'كل المناسبات' }),
+    createEl('div', { className: 'row-actions pe-event-nav' }, [
+      createEl('a', { href: './parents-eyes.html', className: 'btn btn--ghost back-btn' }, [
+        icon('chevronRight', { size: 18 }),
+        createEl('span', { textContent: 'كل المناسبات' }),
+      ]),
+      createEl('a', { href: './parents-share.html', className: 'btn btn--primary' }, [
+        icon('camera', { size: 18 }),
+        createEl('span', { textContent: 'إضافة مشاركة' }),
+      ]),
     ])
   );
   if (!ev) {
@@ -127,7 +133,7 @@ async function renderEvent(ctx, root, eventId) {
 
   root.appendChild(
     createEl('section', { className: 'pe-event-head' }, [
-      cover(ev, 'pe-event-head__cover'),
+      cover(ev, 'pe-event-head__cover', 'contain'),
       createEl('div', { className: 'pe-event-head__body' }, [
         createEl('span', { className: 'pe-kicker', textContent: 'بعيون أهالينا' }),
         createEl('h1', { textContent: ev.title }),
@@ -145,7 +151,7 @@ async function renderEvent(ctx, root, eventId) {
     ])
   );
 
-  const list = createEl('div', { className: 'pe-post-grid', 'aria-live': 'polite' });
+  const list = createEl('div', { className: 'pe-post-feed', 'aria-live': 'polite' });
   root.appendChild(list);
   const posts = await listApprovedPosts(ev.id);
   if (!posts.length) {
@@ -160,10 +166,11 @@ async function renderEvent(ctx, root, eventId) {
 
 function postCard(post, ev) {
   const author = post.author_name || 'ولي أمر';
-  return createEl('article', { className: 'pe-post' }, [
-    postGallery(post.images, {
+  const caption = `${ev.title} — ${author}`;
+  return createEl('article', { className: 'pe-post pe-post--large' }, [
+    postMediaLarge(post.images, {
       getUrl: (img) => imageObjectUrl(img.storage_path),
-      caption: `${ev.title} — ${author}`,
+      caption,
     }),
     createEl('div', { className: 'pe-post__body' }, [
       post.comment ? createEl('p', { className: 'pe-post__comment', dir: 'auto', textContent: post.comment }) : null,

@@ -33,5 +33,5 @@ deno test supabase/functions/parent-submit/
 
 ## الاستدعاء من الواجهة
 `POST {SUPABASE_URL}/functions/v1/parent-submit` بجسم `multipart/form-data`:
-`event_id`, `author_name`, `comment`, `consent=yes`, `website` (فارغ), `elapsed_ms`, و`images` (حتى 5).
+`event_id`, `author_name` (إلزامي: اسم الطالبة أو ولية الأمر), `comment`, `consent=yes`, `website` (فارغ), `elapsed_ms`, و`images` (حتى 5).
 الاستجابة: `{ ok: true }` أو `{ error, message }`.

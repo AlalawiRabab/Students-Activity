@@ -93,29 +93,37 @@ export async function approvedCounts() {
   return map;
 }
 
-const blobUrls = new Map();
+const urlCache = new Map();
 
-/** صورة عامة عبر التخزين بصلاحية المستخدم الحالي (تخضع لسياسة pe_storage_public_read) */
-export async function imageObjectUrl(path) {
-  if (blobUrls.has(path)) return blobUrls.get(path);
+/**
+ * رابط صورة عامة (غلاف مناسبة أو مشاركة معتمدة) عبر Signed URL قصيرة العمر.
+ * يخضع لسياسة pe_storage_public_read / parents_eyes_object_is_public — لا يكشف غير المعتمد.
+ * Signed URL أنسب للعرض الكبير من تنزيل Blob كامل في الذاكرة.
+ */
+export async function imageObjectUrl(path, expiresIn = 3600) {
+  if (!path) throw new Error('مسار الصورة غير موجود');
+  if (urlCache.has(path)) return urlCache.get(path);
   const p = (async () => {
-    const { data, error } = await getSupabase().storage.from(PARENTS_BUCKET).download(path);
-    if (error || !data) throw error || new Error('تعذّر تحميل الصورة');
-    return URL.createObjectURL(data);
+    const { data, error } = await getSupabase()
+      .storage.from(PARENTS_BUCKET)
+      .createSignedUrl(path, expiresIn);
+    if (error || !data?.signedUrl) {
+      logDev('signed url', error);
+      throw error || new Error('تعذّر تحميل الصورة');
+    }
+    return data.signedUrl;
   })();
-  blobUrls.set(path, p);
+  urlCache.set(path, p);
   try {
     return await p;
   } catch (err) {
-    blobUrls.delete(path);
+    urlCache.delete(path);
     throw err;
   }
 }
 
 export function forgetImage(path) {
-  const p = blobUrls.get(path);
-  blobUrls.delete(path);
-  if (p) p.then((u) => URL.revokeObjectURL(u)).catch(() => {});
+  urlCache.delete(path);
 }
 
 // ---------------------------------------------------------------------
@@ -125,6 +133,7 @@ const SUBMIT_MESSAGES = {
   rate_limited: 'تم استلام عدة مشاركات من هذا الجهاز مؤخراً، حاول لاحقاً',
   event_closed: 'هذه المناسبة لا تستقبل مشاركات حالياً',
   too_large: 'حجم المرفقات أكبر من المسموح',
+  name_required: 'يرجى كتابة اسم الطالبة أو ولية أمر الطالبة',
 };
 
 /**
