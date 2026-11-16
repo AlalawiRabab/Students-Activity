@@ -36,6 +36,10 @@ alter table public.parent_post_images
   add constraint parent_post_images_kind_check
   check (kind in ('image', 'video', 'audio'));
 
+-- العامة تحتاج قراءة kind مع صفوف المعتمد فقط (أعمدة محددة كما في 004)
+grant select (id, post_id, storage_path, mime_type, sort_order, kind)
+  on public.parent_post_images to anon;
+
 alter table public.parent_post_images
   add constraint parent_post_images_mime_type_check
   check (mime_type in (

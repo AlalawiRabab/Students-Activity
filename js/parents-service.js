@@ -12,12 +12,12 @@ import {
   PARENTS_BUCKET,
   PARENT_SUBMIT_FUNCTION,
   THUMB_URL_EXPIRES_IN,
-} from './config.js?v=15b9edb';
-import { getSupabase } from './supabase-client.js?v=15b9edb';
-import { writeAudit } from './supabase-service.js?v=15b9edb';
-import { removeStorageVerified } from './storage.js?v=15b9edb';
-import { validateParentImage } from './validators.js?v=15b9edb';
-import { logDev } from './utils.js?v=15b9edb';
+} from './config.js?v=5d91e4a-fix';
+import { getSupabase } from './supabase-client.js?v=5d91e4a-fix';
+import { writeAudit } from './supabase-service.js?v=5d91e4a-fix';
+import { removeStorageVerified } from './storage.js?v=5d91e4a-fix';
+import { validateParentImage } from './validators.js?v=5d91e4a-fix';
+import { logDev } from './utils.js?v=5d91e4a-fix';
 
 export const STATUS_LABELS = Object.freeze({
   pending: 'بانتظار المراجعة',
@@ -31,9 +31,17 @@ const POST_PUBLIC_COLS =
 const POST_ADMIN_COLS =
   'id, event_id, author_name, comment, status, submitted_at, reviewed_at, published_at, parent_post_images(id, storage_path, mime_type, file_size, sort_order, kind)';
 
+function inferMediaKind(row) {
+  if (row?.kind === 'video' || row?.kind === 'audio' || row?.kind === 'image') return row.kind;
+  const mime = String(row?.mime_type || '');
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('audio/')) return 'audio';
+  return 'image';
+}
+
 function sortImages(post) {
   const imgs = [...(post.parent_post_images || [])]
-    .map((m) => ({ ...m, kind: m.kind || 'image' }))
+    .map((m) => ({ ...m, kind: inferMediaKind(m) }))
     .sort((a, b) => a.sort_order - b.sort_order);
   return {
     ...post,
@@ -75,14 +83,29 @@ export async function getEvent(id) {
   return data;
 }
 
+const POST_PUBLIC_COLS_NO_KIND =
+  'id, event_id, author_name, comment, published_at, parent_post_images(id, storage_path, mime_type, sort_order)';
+
 export async function listApprovedPosts(eventId) {
-  const { data, error } = await getSupabase()
+  const sb = getSupabase();
+  let { data, error } = await sb
     .from('parent_posts')
     .select(POST_PUBLIC_COLS)
     .eq('event_id', eventId)
     .eq('status', 'approved')
     .order('published_at', { ascending: false })
     .limit(500);
+  // توافق مؤقت إن لم يُمنح عمود kind للعامة بعد — لا تمنع عرض المشاركات القديمة
+  if (error && /permission denied|42501|kind/i.test(error.message || error.code || '')) {
+    logDev('listApprovedPosts kind fallback', error);
+    ({ data, error } = await sb
+      .from('parent_posts')
+      .select(POST_PUBLIC_COLS_NO_KIND)
+      .eq('event_id', eventId)
+      .eq('status', 'approved')
+      .order('published_at', { ascending: false })
+      .limit(500));
+  }
   if (error) throw error;
   return (data || []).map(sortImages);
 }

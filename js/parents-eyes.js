@@ -2,8 +2,8 @@
  * parents-eyes.js — «بعيون أهالينا» للعامة: المناسبات والمشاركات المعتمدة فقط
  * ?event=<id> يعرض صفحة المناسبة
  */
-import { bootPublicPage } from './app.js?v=15b9edb';
-import { isFeatureManager } from './auth.js?v=15b9edb';
+import { bootPublicPage } from './app.js?v=5d91e4a-fix';
+import { isFeatureManager } from './auth.js?v=5d91e4a-fix';
 import {
   listEvents,
   getEvent,
@@ -12,11 +12,11 @@ import {
   imageObjectUrl,
   bindMediaBlobLifecycle,
   MEDIA_LOCAL_COPY_NOTE,
-} from './parents-service.js?v=15b9edb';
-import { lazyImage, postAttachments } from './parents-ui.js?v=15b9edb';
-import { isMissingSchemaError } from './file-manager.js?v=15b9edb';
-import { createEl, formatDate, logDev } from './utils.js?v=15b9edb';
-import { icon } from './icons.js?v=15b9edb';
+} from './parents-service.js?v=5d91e4a-fix';
+import { lazyImage, postAttachments } from './parents-ui.js?v=5d91e4a-fix';
+import { isMissingSchemaError } from './file-manager.js?v=5d91e4a-fix';
+import { createEl, formatDate, logDev } from './utils.js?v=5d91e4a-fix';
+import { icon } from './icons.js?v=5d91e4a-fix';
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
@@ -157,7 +157,20 @@ async function renderEvent(ctx, root, eventId) {
 
   const list = createEl('div', { className: 'pe-post-feed', 'aria-live': 'polite' });
   root.appendChild(list);
-  const posts = await listApprovedPosts(ev.id);
+  let posts = [];
+  try {
+    posts = await listApprovedPosts(ev.id);
+  } catch (err) {
+    logDev(err);
+    list.appendChild(createEl('div', { className: 'fm-empty' }, [
+      createEl('strong', {
+        textContent: isMissingSchemaError(err)
+          ? 'قسم «بعيون أهالينا» غير مفعّل بعد'
+          : 'تعذّر تحميل المشاركات، حاول لاحقاً',
+      }),
+    ]));
+    return;
+  }
   if (!posts.length) {
     list.appendChild(createEl('div', { className: 'fm-empty' }, [
       createEl('div', { className: 'fm-empty__icon' }, [icon('camera', { size: 30 })]),

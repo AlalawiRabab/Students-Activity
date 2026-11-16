@@ -4,8 +4,8 @@
  * صفحة إدارية بحتة: الزائر لا يرى أي بيانات. كل الإجراءات تخضع لـ RLS (is_feature_manager مع
  * جلسة إدارة فُتحت بالرقم السري) في الخادم؛ إخفاء الأزرار هنا للتنظيم فقط.
  */
-import { bootAdminPage } from './app.js?v=15b9edb';
-import { isFeatureManager } from './auth.js?v=15b9edb';
+import { bootAdminPage } from './app.js?v=5d91e4a-fix';
+import { isFeatureManager } from './auth.js?v=5d91e4a-fix';
 import {
   STATUS_LABELS,
   listEvents,
@@ -21,13 +21,13 @@ import {
   replaceCover,
   deleteEvent,
   bindMediaBlobLifecycle,
-} from './parents-service.js?v=15b9edb';
-import { postAttachments, lazyImage, lazyAvPlayer } from './parents-ui.js?v=15b9edb';
-import { isMissingSchemaError, renderSchemaNotice } from './file-manager.js?v=15b9edb';
-import { openModal, confirmDialog, setButtonLoading, field, refreshParentsPendingBadge, copyShareLinkButton } from './ui.js?v=15b9edb';
-import { validateRequired, validateLength, validateParentImage } from './validators.js?v=15b9edb';
-import { createEl, clearElement, formatDate, logDev } from './utils.js?v=15b9edb';
-import { icon } from './icons.js?v=15b9edb';
+} from './parents-service.js?v=5d91e4a-fix';
+import { postAttachments, lazyImage, lazyAvPlayer } from './parents-ui.js?v=5d91e4a-fix';
+import { isMissingSchemaError, renderSchemaNotice } from './file-manager.js?v=5d91e4a-fix';
+import { openModal, confirmDialog, setButtonLoading, field, refreshParentsPendingBadge, copyShareLinkButton } from './ui.js?v=5d91e4a-fix';
+import { validateRequired, validateLength, validateParentImage } from './validators.js?v=5d91e4a-fix';
+import { createEl, clearElement, formatDate, logDev } from './utils.js?v=5d91e4a-fix';
+import { icon } from './icons.js?v=5d91e4a-fix';
 
 const STATUSES = ['pending', 'approved', 'rejected'];
 

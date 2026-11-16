@@ -1,8 +1,8 @@
 /**
  * parents-ui.js — عناصر عرض مشتركة لـ «بعيون أهالينا»: صور كسولة + عارض صور
  */
-import { createEl, clearElement, logDev } from './utils.js?v=15b9edb';
-import { icon } from './icons.js?v=15b9edb';
+import { createEl, clearElement, logDev } from './utils.js?v=5d91e4a-fix';
+import { icon } from './icons.js?v=5d91e4a-fix';
 
 let observer = null;
 const starters = new WeakMap();
@@ -66,7 +66,7 @@ export function lazyImage({ getUrl, alt = '', className = 'pe-img', fit = 'cover
         box.classList.remove(`${className}--loading`);
         box.removeAttribute('aria-busy');
       });
-      img.addEventListener('error', () => markFailed(box, className));
+      img.addEventListener('error', () => markFailed(box, className, 'تعذّر تحميل الصورة'));
       if (img.complete && img.naturalWidth) {
         box.replaceChildren(img);
         box.classList.remove(`${className}--loading`);
@@ -74,17 +74,20 @@ export function lazyImage({ getUrl, alt = '', className = 'pe-img', fit = 'cover
       }
     } catch (err) {
       logDev('image', err);
-      markFailed(box, className);
+      markFailed(box, className, 'تعذّر تحميل الصورة');
     }
   });
   return box;
 }
 
-function markFailed(box, className) {
+function markFailed(box, className, message = 'تعذّر تحميل المرفق') {
   box.classList.remove(`${className}--loading`);
   box.classList.add(`${className}--failed`);
   box.removeAttribute('aria-busy');
-  box.replaceChildren(icon('image', { size: 26 }));
+  box.replaceChildren(
+    icon('image', { size: 26 }),
+    createEl('span', { className: 'muted pe-media-failed', textContent: message })
+  );
 }
 
 /**
@@ -320,7 +323,7 @@ export function lazyAvPlayer({ getUrl, mime = '', kind, className = 'pe-av' }) {
         box.classList.remove(`${className}--loading`);
         box.removeAttribute('aria-busy');
       });
-      el.addEventListener('error', () => markFailed(box, className));
+      el.addEventListener('error', () => markFailed(box, className, 'تعذّر تشغيل هذا المرفق'));
       // بعض المتصفحات لا تطلق loadedmetadata بسرعة
       setTimeout(() => {
         if (!box.classList.contains(`${className}--loading`)) return;
@@ -330,7 +333,7 @@ export function lazyAvPlayer({ getUrl, mime = '', kind, className = 'pe-av' }) {
       }, 1200);
     } catch (err) {
       logDev('av', err);
-      markFailed(box, className);
+      markFailed(box, className, 'تعذّر تحميل هذا المرفق');
     }
   });
   return box;
