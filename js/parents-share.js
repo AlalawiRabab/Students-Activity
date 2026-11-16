@@ -2,15 +2,15 @@
  * parents-share.js — نموذج مشاركة ولي الأمر (بدون حساب)
  * التحقق هنا للراحة فقط؛ التحقق الفعلي في Edge Function parent-submit.
  */
-import { bootPublicPage } from './app.js?v=7640c0e';
+import { bootPublicPage } from './app.js?v=15b9edb';
 import {
   listEvents,
   submitParentPost,
   imageObjectUrl,
   bindMediaBlobLifecycle,
   MEDIA_LOCAL_COPY_NOTE,
-} from './parents-service.js?v=7640c0e';
-import { isMissingSchemaError } from './file-manager.js?v=7640c0e';
+} from './parents-service.js?v=15b9edb';
+import { isMissingSchemaError } from './file-manager.js?v=15b9edb';
 import {
   PARENT_MAX_IMAGES,
   PARENT_MAX_IMAGE_SIZE,
@@ -18,11 +18,11 @@ import {
   PARENT_MAX_AUDIO_SIZE,
   PARENT_VIDEO_ACCEPT,
   PARENT_AUDIO_ACCEPT,
-} from './config.js?v=7640c0e';
-import { validateParentImage, validateParentVideo, validateParentAudio } from './validators.js?v=7640c0e';
-import { setButtonLoading, field, copyShareLinkButton } from './ui.js?v=7640c0e';
-import { createEl, clearElement, formatBytes, logDev } from './utils.js?v=7640c0e';
-import { icon } from './icons.js?v=7640c0e';
+} from './config.js?v=15b9edb';
+import { validateParentImage, validateParentVideo, validateParentAudio } from './validators.js?v=15b9edb';
+import { setButtonLoading, field, copyShareLinkButton } from './ui.js?v=15b9edb';
+import { createEl, clearElement, formatBytes, logDev } from './utils.js?v=15b9edb';
+import { icon } from './icons.js?v=15b9edb';
 
 export const CONSENT_TEXT =
   'أؤكد موافقتي وامتلاكي الإذن بمشاركة الصور والفيديو والتسجيلات الصوتية المرفقة للنشر في منصة المدرسة';

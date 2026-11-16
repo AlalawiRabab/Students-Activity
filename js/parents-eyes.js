@@ -2,8 +2,8 @@
  * parents-eyes.js — «بعيون أهالينا» للعامة: المناسبات والمشاركات المعتمدة فقط
  * ?event=<id> يعرض صفحة المناسبة
  */
-import { bootPublicPage } from './app.js?v=7640c0e';
-import { isFeatureManager } from './auth.js?v=7640c0e';
+import { bootPublicPage } from './app.js?v=15b9edb';
+import { isFeatureManager } from './auth.js?v=15b9edb';
 import {
   listEvents,
   getEvent,
@@ -12,11 +12,11 @@ import {
   imageObjectUrl,
   bindMediaBlobLifecycle,
   MEDIA_LOCAL_COPY_NOTE,
-} from './parents-service.js?v=7640c0e';
-import { lazyImage, postAttachments } from './parents-ui.js?v=7640c0e';
-import { isMissingSchemaError } from './file-manager.js?v=7640c0e';
-import { createEl, formatDate, logDev } from './utils.js?v=7640c0e';
-import { icon } from './icons.js?v=7640c0e';
+} from './parents-service.js?v=15b9edb';
+import { lazyImage, postAttachments } from './parents-ui.js?v=15b9edb';
+import { isMissingSchemaError } from './file-manager.js?v=15b9edb';
+import { createEl, formatDate, logDev } from './utils.js?v=15b9edb';
+import { icon } from './icons.js?v=15b9edb';
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 

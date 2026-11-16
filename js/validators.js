@@ -14,8 +14,8 @@ import {
   PARENT_MAX_VIDEO_SIZE,
   PARENT_MAX_AUDIO_SIZE,
   PARENT_IMAGE_TYPES,
-} from './config.js';
-import { getFileExtension } from './utils.js';
+} from './config.js?v=15b9edb';
+import { getFileExtension } from './utils.js?v=15b9edb';
 
 const EXT_BY_MIME = {
   'image/jpeg': ['jpg', 'jpeg'],
