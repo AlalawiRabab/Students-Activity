@@ -12,12 +12,12 @@ import {
   PARENTS_BUCKET,
   PARENT_SUBMIT_FUNCTION,
   THUMB_URL_EXPIRES_IN,
-} from './config.js';
-import { getSupabase } from './supabase-client.js';
-import { writeAudit } from './supabase-service.js';
-import { removeStorageVerified } from './storage.js';
-import { validateParentImage } from './validators.js';
-import { logDev } from './utils.js';
+} from './config.js?v=7640c0e';
+import { getSupabase } from './supabase-client.js?v=7640c0e';
+import { writeAudit } from './supabase-service.js?v=7640c0e';
+import { removeStorageVerified } from './storage.js?v=7640c0e';
+import { validateParentImage } from './validators.js?v=7640c0e';
+import { logDev } from './utils.js?v=7640c0e';
 
 export const STATUS_LABELS = Object.freeze({
   pending: 'بانتظار المراجعة',

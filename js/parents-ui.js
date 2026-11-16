@@ -1,8 +1,8 @@
 /**
  * parents-ui.js — عناصر عرض مشتركة لـ «بعيون أهالينا»: صور كسولة + عارض صور
  */
-import { createEl, clearElement, logDev } from './utils.js';
-import { icon } from './icons.js';
+import { createEl, clearElement, logDev } from './utils.js?v=7640c0e';
+import { icon } from './icons.js?v=7640c0e';
 
 let observer = null;
 const starters = new WeakMap();
