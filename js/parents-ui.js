@@ -135,6 +135,8 @@ export function openLightbox(items, start = 0, caption = '') {
   };
   const close = () => {
     document.removeEventListener('keydown', onKey);
+    // إزالة المصدر من العرض؛ إبطال blob الجماعي عند مغادرة الصفحة (bindMediaBlobLifecycle)
+    clearElement(stage);
     overlay.remove();
   };
   const go = (d) => {
@@ -291,4 +293,94 @@ export function postMediaLarge(images, { getUrl, caption }) {
   frame.append(stage, prev, next, counter, dots);
   show();
   return frame;
+}
+
+/**
+ * مشغّل فيديو/صوت كسول (بدون تشغيل تلقائي)
+ * @param {{ getUrl: () => Promise<string>, mime?: string, kind: 'video'|'audio', className?: string }} opts
+ */
+export function lazyAvPlayer({ getUrl, mime = '', kind, className = 'pe-av' }) {
+  const box = createEl('div', { className: `${className} ${className}--loading`, 'aria-busy': 'true' }, [
+    createEl('span', { className: 'spinner spinner--dark', 'aria-hidden': 'true' }),
+  ]);
+  lazy(box, async () => {
+    try {
+      const url = await getUrl();
+      const el = createEl(kind, {
+        className: `${className}__el`,
+        src: url,
+        controls: true,
+        controlsList: 'nodownload',
+        preload: 'metadata',
+        playsInline: true,
+      });
+      if (mime) el.setAttribute('type', mime);
+      el.addEventListener('loadedmetadata', () => {
+        box.replaceChildren(el);
+        box.classList.remove(`${className}--loading`);
+        box.removeAttribute('aria-busy');
+      });
+      el.addEventListener('error', () => markFailed(box, className));
+      // بعض المتصفحات لا تطلق loadedmetadata بسرعة
+      setTimeout(() => {
+        if (!box.classList.contains(`${className}--loading`)) return;
+        box.replaceChildren(el);
+        box.classList.remove(`${className}--loading`);
+        box.removeAttribute('aria-busy');
+      }, 1200);
+    } catch (err) {
+      logDev('av', err);
+      markFailed(box, className);
+    }
+  });
+  return box;
+}
+
+/**
+ * مرفقات المشاركة: صور كبيرة + فيديو + صوت
+ * @param {{ images?: object[], media?: object[], imageItems?: object[], videoItem?: object|null, audioItem?: object|null }} post
+ * @param {{ getUrl: (item: object) => Promise<string>, caption?: string, compact?: boolean }} opts
+ */
+export function postAttachments(post, { getUrl, caption = '', compact = false }) {
+  const media = post.media || post.images || [];
+  const images = post.imageItems || media.filter((m) => (m.kind || 'image') === 'image');
+  const video = post.videoItem || media.find((m) => m.kind === 'video') || null;
+  const audio = post.audioItem || media.find((m) => m.kind === 'audio') || null;
+  if (!images.length && !video && !audio) return null;
+
+  const wrap = createEl('div', { className: compact ? 'pe-attachments pe-attachments--compact' : 'pe-attachments' });
+  if (images.length) {
+    wrap.appendChild(
+      compact
+        ? postGallery(images, { getUrl, caption })
+        : postMediaLarge(images, { getUrl, caption })
+    );
+  }
+  if (video) {
+    wrap.appendChild(
+      createEl('div', { className: 'pe-av-block' }, [
+        createEl('span', { className: 'pe-av-block__label', textContent: 'فيديو' }),
+        lazyAvPlayer({
+          getUrl: () => getUrl(video),
+          mime: video.mime_type,
+          kind: 'video',
+          className: compact ? 'pe-av pe-av--sm' : 'pe-av',
+        }),
+      ])
+    );
+  }
+  if (audio) {
+    wrap.appendChild(
+      createEl('div', { className: 'pe-av-block' }, [
+        createEl('span', { className: 'pe-av-block__label', textContent: 'تسجيل صوتي' }),
+        lazyAvPlayer({
+          getUrl: () => getUrl(audio),
+          mime: audio.mime_type,
+          kind: 'audio',
+          className: compact ? 'pe-av pe-av--sm' : 'pe-av',
+        }),
+      ])
+    );
+  }
+  return wrap;
 }

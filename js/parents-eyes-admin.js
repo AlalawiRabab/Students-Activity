@@ -20,8 +20,9 @@ import {
   updateEvent,
   replaceCover,
   deleteEvent,
+  bindMediaBlobLifecycle,
 } from './parents-service.js';
-import { postGallery, lazyImage } from './parents-ui.js';
+import { postAttachments, lazyImage, lazyAvPlayer } from './parents-ui.js';
 import { isMissingSchemaError, renderSchemaNotice } from './file-manager.js';
 import { openModal, confirmDialog, setButtonLoading, field, refreshParentsPendingBadge, copyShareLinkButton } from './ui.js';
 import { validateRequired, validateLength, validateParentImage } from './validators.js';
@@ -31,6 +32,7 @@ import { icon } from './icons.js';
 const STATUSES = ['pending', 'approved', 'rejected'];
 
 bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ctx) => {
+  bindMediaBlobLifecycle();
   const root = ctx.content;
   root.appendChild(
     createEl('section', { className: 'section-header' }, [
@@ -274,7 +276,7 @@ bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ct
       act('حذف', 'trash', async () => {
         const ok = await confirmDialog({
           title: 'حذف المشاركة نهائياً',
-          message: `سيتم حذف المشاركة${post.images.length ? ` و${post.images.length} صورة` : ''} نهائياً ولا يمكن التراجع. هل تريدين المتابعة؟`,
+          message: `سيتم حذف المشاركة${post.images.length ? ` و${post.images.length} مرفقاً` : ''} نهائياً ولا يمكن التراجع. هل تريدين المتابعة؟`,
           confirmText: 'نعم، احذف',
           cancelText: 'تراجع',
           danger: true,
@@ -285,13 +287,25 @@ bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ct
       }, 'fc-btn--danger')
     );
 
+    const mediaCount = post.images?.length || 0;
     return createEl('article', { className: `pe-admin-post pe-admin-post--${post.status}` }, [
-      postGallery(post.images, { getUrl: (img) => signedUrl(img.storage_path), caption: author }),
+      postAttachments(post, {
+        getUrl: (item) => signedUrl(item.storage_path),
+        caption: author,
+        compact: true,
+      }),
       createEl('div', { className: 'pe-post__body' }, [
         createEl('div', { className: 'pe-admin-post__tags' }, [
           createEl('span', { className: 'chip', textContent: eventTitle(post.event_id) }),
           createEl('span', { className: `chip chip--status-${post.status}`, textContent: STATUS_LABELS[post.status] }),
-          post.images.length ? createEl('span', { className: 'meta-chip' }, [icon('image', { size: 15 }), createEl('span', { textContent: String(post.images.length) })]) : null,
+          mediaCount
+            ? createEl('span', { className: 'meta-chip' }, [
+                icon('image', { size: 15 }),
+                createEl('span', { textContent: String(mediaCount) }),
+              ])
+            : null,
+          post.videoItem ? createEl('span', { className: 'meta-chip', textContent: 'فيديو' }) : null,
+          post.audioItem ? createEl('span', { className: 'meta-chip', textContent: 'صوت' }) : null,
         ]),
         post.comment
           ? createEl('p', { className: 'pe-post__comment', dir: 'auto', textContent: post.comment })
@@ -319,40 +333,60 @@ bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ct
     function renderImgs() {
       clearElement(imgs);
       if (!current.images.length) {
-        imgs.appendChild(createEl('p', { className: 'muted', textContent: 'لا توجد صور' }));
+        imgs.appendChild(createEl('p', { className: 'muted', textContent: 'لا توجد مرفقات' }));
         return;
       }
       current.images.forEach((img) => {
+        const kind = img.kind || 'image';
+        const label = kind === 'video' ? 'حذف الفيديو' : kind === 'audio' ? 'حذف الصوت' : 'حذف الصورة';
         const del = createEl('button', { type: 'button', className: 'btn btn--danger btn--sm' }, [
           icon('trash', { size: 15 }),
-          createEl('span', { textContent: 'حذف الصورة' }),
+          createEl('span', { textContent: label }),
         ]);
         del.addEventListener('click', async () => {
           if (current.images.length === 1 && !comment.value.trim()) {
-            ctx.showToast('لا يمكن حذف آخر صورة لمشاركة بلا تعليق؛ احذفي المشاركة بدلاً من ذلك', 'error');
+            ctx.showToast('لا يمكن حذف آخر مرفق لمشاركة بلا تعليق؛ احذفي المشاركة بدلاً من ذلك', 'error');
             return;
           }
           const ok = await confirmDialog({
-            title: 'حذف الصورة',
-            message: 'سيتم حذف هذه الصورة من المشاركة نهائياً. هل تريدين المتابعة؟',
-            confirmText: 'حذف الصورة',
+            title: 'حذف المرفق',
+            message: 'سيتم حذف هذا المرفق من المشاركة نهائياً. هل تريدين المتابعة؟',
+            confirmText: 'حذف المرفق',
             danger: true,
           });
           if (!ok) return;
           del.disabled = true;
           try {
             await deletePostImage(img);
-            current = { ...current, images: current.images.filter((i) => i.id !== img.id) };
+            const nextImages = current.images.filter((i) => i.id !== img.id);
+            current = {
+              ...current,
+              images: nextImages,
+              media: nextImages,
+              imageItems: nextImages.filter((i) => (i.kind || 'image') === 'image'),
+              videoItem: nextImages.find((i) => i.kind === 'video') || null,
+              audioItem: nextImages.find((i) => i.kind === 'audio') || null,
+            };
             renderImgs();
-            ctx.showToast('تم حذف الصورة', 'success');
+            ctx.showToast('تم حذف المرفق', 'success');
             dirty = true;
           } catch (err) {
             del.disabled = false;
             ctx.handleError(err);
           }
         });
+        const preview =
+          kind === 'image'
+            ? lazyImage({ getUrl: () => signedUrl(img.storage_path), className: 'pe-img' })
+            : lazyAvPlayer({
+                getUrl: () => signedUrl(img.storage_path),
+                mime: img.mime_type,
+                kind,
+                className: 'pe-av pe-av--sm',
+              });
         imgs.appendChild(createEl('div', { className: 'pe-edit-image' }, [
-          lazyImage({ getUrl: () => signedUrl(img.storage_path), className: 'pe-img' }),
+          createEl('span', { className: 'muted', textContent: kind === 'image' ? 'صورة' : kind === 'video' ? 'فيديو' : 'صوت' }),
+          preview,
           del,
         ]));
       });
@@ -360,9 +394,9 @@ bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ct
     renderImgs();
 
     form.append(
-      field('اسم المشارك', nameInput, 'اتركيه فارغاً لعرض «ولي أمر»'),
+      field('اسم الطالبة / ولية أمر الطالبة', nameInput),
       field('التعليق', comment),
-      createEl('div', { className: 'field' }, [createEl('span', { className: 'field__label', textContent: 'الصور' }), imgs]),
+      createEl('div', { className: 'field' }, [createEl('span', { className: 'field__label', textContent: 'المرفقات' }), imgs]),
       createEl('div', { className: 'modal__actions' }, [saveBtn])
     );
     const { close } = openModal({
@@ -375,7 +409,7 @@ bootAdminPage({ title: 'مراجعة مشاركات الأهالي' }, async (ct
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!comment.value.trim() && !current.images.length) {
-        ctx.showToast('يلزم بقاء صورة أو تعليق في المشاركة', 'error');
+        ctx.showToast('يلزم بقاء مرفق أو تعليق في المشاركة', 'error');
         return;
       }
       setButtonLoading(saveBtn, true);

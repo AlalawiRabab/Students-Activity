@@ -1,0 +1,37 @@
+[
+  {
+    "ok": true,
+    "name": "anon download video after approve",
+    "detail": "status=200 size=64"
+  },
+  {
+    "ok": true,
+    "name": "anon download audio after approve",
+    "detail": "status=200 size=22094"
+  },
+  {
+    "ok": true,
+    "name": "anon download video denied after unpublish",
+    "detail": "status=400"
+  },
+  {
+    "ok": true,
+    "name": "anon download audio denied after unpublish",
+    "detail": "status=400"
+  },
+  {
+    "ok": true,
+    "name": "orphan file uploaded",
+    "detail": "status=200"
+  },
+  {
+    "ok": false,
+    "name": "orphan intent cleaned",
+    "detail": "{\"intent_left\":true,\"object_left\":true}"
+  },
+  {
+    "ok": false,
+    "name": "orphan storage object cleaned",
+    "detail": "{\"intent_left\":true,\"object_left\":true}"
+  }
+]

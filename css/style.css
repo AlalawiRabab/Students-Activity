@@ -2063,6 +2063,61 @@ table.data-table {
 .pe-preview img { width: 100%; height: 100%; object-fit: cover; }
 .pe-preview__size { position: absolute; bottom: 4px; inset-inline-start: 4px; padding: 0 0.35rem; border-radius: 6px; background: rgba(15, 20, 35, 0.65); color: #fff; font-size: 0.7rem; }
 
+.pe-media-previews {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.7rem;
+  margin-top: 0.55rem;
+  min-width: 0;
+}
+.pe-media-previews:empty { display: none; }
+.pe-preview--av {
+  height: auto;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  background: var(--surface);
+}
+.pe-preview--av video,
+.pe-preview--av audio {
+  width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  background: #000;
+}
+.pe-preview--av audio { max-height: none; background: transparent; }
+.pe-preview__av-meta { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; }
+.pe-pick-row .is-recording { border-color: var(--danger); color: var(--danger); }
+
+.pe-upload-progress { display: grid; gap: 0.35rem; margin-bottom: 0.4rem; }
+.pe-upload-progress[hidden] { display: none !important; }
+.pe-upload-progress__track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.pe-upload-progress__bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--primary);
+  transition: width 0.15s ease;
+}
+
+.pe-attachments { display: grid; gap: 0.55rem; min-width: 0; }
+.pe-attachments--compact { gap: 0.35rem; }
+.pe-av-block { display: grid; gap: 0.35rem; padding: 0.55rem 0.7rem 0.75rem; background: var(--surface-2); }
+.pe-av-block__label { font-size: 0.82rem; font-weight: 700; color: var(--muted); }
+.pe-av { position: relative; width: 100%; min-height: 48px; display: grid; place-items: center; background: #0f1423; border-radius: 10px; overflow: hidden; color: var(--muted); }
+.pe-av--sm { min-height: 40px; border-radius: 8px; }
+.pe-av__el { width: 100%; max-height: min(70vh, 520px); display: block; background: #000; }
+.pe-av audio.pe-av__el,
+.pe-av__el[controls][src]:is(audio) { max-height: none; background: transparent; padding: 0.4rem; }
+.pe-av--loading { min-height: 80px; }
+
 .pe-preview__rm {
   position: absolute;
   top: 4px;

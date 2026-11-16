@@ -1,37 +1,29 @@
 # Edge Function: parent-submit
 
 ## الغرض
-استقبال مشاركة ولي الأمر في «بعيون أهالينا» **دون حساب**. الزائر لا يملك أي صلاحية كتابة في قاعدة البيانات أو التخزين؛ هذه الدالة وحدها تكتب بمفتاح `service_role` (سرّ خادم).
+استقبال مشاركة ولي الأمر في «بعيون أهالينا» **دون حساب**.
 
-## ما تفرضه الدالة
-- Origin مسموح فقط: `https://activity.albian127.net`، GitHub Pages، و`localhost:5500` / `127.0.0.1:5500` (ونطاقات إضافية عبر `EXTRA_ALLOWED_ORIGINS`).
-- حد لحجم الطلب (5 صور × 5 م.ب)، ويُقطع الاتصال عند تجاوزه.
-- نوع الصورة من **بايتاتها الفعلية** (JPG / PNG / WEBP) لا من الاسم أو ترويسة المتصفح.
-- صورة أو تعليق على الأقل، الإقرار إلزامي، الاسم ≤ 80 والتعليق ≤ 2000 حرف، وإزالة محارف التحكم وتجاوز الاتجاه.
-- حقل خفي (honeypot) وزمن تعبئة أدنى ضد الإرسال الآلي.
-- حد للإرسال المتكرر عبر `parent_submit_throttle`: يعتمد تجزئة عنوان IP (مع ملح) **و** معرّف الجهاز، وحدوداً إجمالية للطابور والتكرار — لا يكفي للزائر تغيير معرّف الجهاز وحده لتجاوز القيد. يُخزَّن **تجزئة** عنوان IP مع ملح، لا العنوان نفسه.
-- الدالة عامة (`--no-verify-jwt`) لكنها تسمح فقط بإنشاء مشاركة `pending` عبر `create_parent_post`؛ لا تعتمد ولا تحذف ولا تصل إلى بيانات خاصة للزائر.
-- المناسبة يجب أن تكون مفتوحة؛ والمشاركة تُنشأ دائماً بحالة `pending` (يفرضها محفز قاعدة البيانات أيضاً).
-- عند فشل الحفظ تُحذف الصور المرفوعة.
+## مسار الرفع (50 م.ب)
+1. **`POST` JSON `{ action: "prepare", video?, audio? }`** — يتحقق من الحجم، يسجّل نوايا في `parent_upload_intents`، ويُرجع Signed Upload URLs. العميل يرفع مباشرة للتخزين.
+2. **`POST` multipart** (صور + حقول فقط) مع `post_id` و`video_path`/`audio_path`.  
+   الدالة تتحقق من الملف **في التخزين** (حجم/نوع/ارتباط بالنية) قبل `create_parent_post`.  
+   إعادة المحاولة لنفس `post_id` بعد النجاح idempotent.  
+   مرفقات الفيديو/الصوت داخل multipart مرفوضة.
 
-## الأسرار (Supabase → Edge Functions → Secrets)
-- `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY`: متوفرة تلقائياً.
-- `PARENT_SUBMIT_SALT`: **يُنصح به** — نص عشوائي طويل (مثلاً ناتج `openssl rand -hex 32`).
-- `EXTRA_ALLOWED_ORIGINS` (اختياري): نطاقات إضافية مفصولة بفواصل، مثل نطاق مخصص للمنصة.
+## تنظيف المؤقتات
+عند كل `prepare`/`finalize` تُستدعى تنظيف نوايا غير مستهلكة أقدم من **ساعتين** وغير مربوطة بـ `parent_post_images`، مع تجنّب حذف كائن عُدّل خلال 30 دقيقة (رفع جارٍ).
 
-## النشر (بعد موافقتك فقط، وبعد تشغيل migrations/004)
+## الخصوصية في الواجهة
+`download()` → blob؛ تُبطَل عند مغادرة الصفحة (`pagehide` / `visibilitychange`) وعند تغيير حالة المشاركة. النسخ المحفوظة على جهاز الزائر لا تُسحب عن بُعد.
+
+## النشر (مشروع النشاط فقط)
 ```bash
-supabase functions deploy parent-submit --no-verify-jwt
-supabase secrets set PARENT_SUBMIT_SALT=<قيمة-عشوائية-طويلة>
+npx supabase db query --yes --remote=rcxcmxaplyzxhhgrmhqj -f migrations/007_parents_video_audio.sql
+npx supabase functions deploy parent-submit --no-verify-jwt --use-api --remote=rcxcmxaplyzxhhgrmhqj
 ```
-`--no-verify-jwt` لازم لأن الزائر يستدعيها بالمفتاح العام (Publishable) دون جلسة؛ الحماية داخل الدالة وفي RLS.
 
 ## الاختبارات
 ```bash
-deno test supabase/functions/parent-submit/
+npx --yes deno test supabase/functions/parent-submit/
+npx --yes deno run -A supabase/functions/parent-submit/local-harness.ts
 ```
-
-## الاستدعاء من الواجهة
-`POST {SUPABASE_URL}/functions/v1/parent-submit` بجسم `multipart/form-data`:
-`event_id`, `author_name` (إلزامي: اسم الطالبة أو ولية الأمر), `comment`, `consent=yes`, `website` (فارغ), `elapsed_ms`, و`images` (حتى 5).
-الاستجابة: `{ ok: true }` أو `{ error, message }`.

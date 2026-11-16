@@ -11,6 +11,8 @@ import {
   COMPETITION_FILE_MAX_SIZE,
   COMPETITION_FILE_TYPES,
   PARENT_MAX_IMAGE_SIZE,
+  PARENT_MAX_VIDEO_SIZE,
+  PARENT_MAX_AUDIO_SIZE,
   PARENT_IMAGE_TYPES,
 } from './config.js';
 import { getFileExtension } from './utils.js';
@@ -170,7 +172,61 @@ export function validateParentImage(file) {
   if (file.size > PARENT_MAX_IMAGE_SIZE) {
     return { ok: false, error: `«${file.name}»: حجم الصورة يتجاوز 5 ميجابايت` };
   }
-  return { ok: true, ext: ext === 'jpeg' ? 'jpg' : ext, mime };
+  return { ok: true, ext: ext === 'jpeg' ? 'jpg' : ext, mime, kind: 'image' };
+}
+
+const PARENT_VIDEO_EXTS = {
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
+
+/** فيديو مشاركة الأهالي: MP4 / MOV / WEBM حتى 50 م.ب */
+export function validateParentVideo(file) {
+  if (!file) return { ok: false, error: 'لم يتم اختيار فيديو' };
+  const ext = getFileExtension(file.name);
+  const mime = PARENT_VIDEO_EXTS[ext];
+  if (!mime) {
+    return { ok: false, error: `«${file.name}»: الفيديو المقبول MP4 أو MOV أو WEBM فقط` };
+  }
+  if (file.type && !file.type.startsWith('video/') && file.type !== 'application/octet-stream') {
+    return { ok: false, error: `«${file.name}»: نوع الفيديو غير مدعوم` };
+  }
+  if (file.size <= 0) return { ok: false, error: `«${file.name}»: الملف فارغ` };
+  if (file.size > PARENT_MAX_VIDEO_SIZE) {
+    return { ok: false, error: `«${file.name}»: حجم الفيديو يتجاوز 50 ميجابايت` };
+  }
+  return { ok: true, ext, mime: file.type?.startsWith('video/') ? file.type : mime, kind: 'video' };
+}
+
+const PARENT_AUDIO_EXTS = {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  webm: 'audio/webm',
+};
+
+/** صوت مشاركة الأهالي: MP3 / M4A / AAC / WAV / OGG / WEBM حتى 15 م.ب */
+export function validateParentAudio(file) {
+  if (!file) return { ok: false, error: 'لم يتم اختيار ملف صوتي' };
+  const ext = getFileExtension(file.name);
+  const mime = PARENT_AUDIO_EXTS[ext];
+  if (!mime && !(file.type && file.type.startsWith('audio/'))) {
+    return { ok: false, error: `«${file.name}»: الصوت المقبول MP3 أو M4A أو AAC أو WAV أو OGG أو WEBM` };
+  }
+  if (file.size <= 0) return { ok: false, error: `«${file.name}»: الملف فارغ` };
+  if (file.size > PARENT_MAX_AUDIO_SIZE) {
+    return { ok: false, error: `«${file.name}»: حجم الملف الصوتي يتجاوز 15 ميجابايت` };
+  }
+  const resolvedExt = ext || (file.type.includes('webm') ? 'webm' : file.type.includes('mp4') ? 'm4a' : 'mp3');
+  return {
+    ok: true,
+    ext: resolvedExt,
+    mime: file.type?.startsWith('audio/') ? file.type : mime || 'audio/mpeg',
+    kind: 'audio',
+  };
 }
 
 export function sanitizeBackupDetails(obj) {

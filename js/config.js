@@ -98,7 +98,11 @@ export const PARENTS_BUCKET = 'parents-eyes';
 export const PARENT_SUBMIT_FUNCTION = 'parent-submit';
 export const PARENT_MAX_IMAGES = 5;
 export const PARENT_MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+export const PARENT_MAX_VIDEO_SIZE = 50 * 1024 * 1024;
+export const PARENT_MAX_AUDIO_SIZE = 15 * 1024 * 1024;
 export const PARENT_IMAGE_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/webp']);
+export const PARENT_VIDEO_ACCEPT = 'video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm';
+export const PARENT_AUDIO_ACCEPT = 'audio/mpeg,audio/mp4,audio/aac,audio/wav,audio/x-wav,audio/webm,audio/ogg,audio/x-m4a,.mp3,.m4a,.aac,.wav,.ogg,.webm';
 
 /** PDF.js لصور الصفحة الأولى في بطاقات PDF (نسخة legacy للمتصفحات الأقدم) */
 export const PDFJS_BASE = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/';

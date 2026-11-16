@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <title>اختبار تشغيل فيديو/صوت محلي</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+    .row { margin: 1rem 0; }
+    video, audio { width: 100%; display: block; background: #111; }
+    #log { white-space: pre-wrap; background: #f4f4f4; padding: 1rem; border-radius: 8px; }
+    .ok { color: #0a7; } .bad { color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>اختبار تشغيل محلي</h1>
+  <p>بدون تشغيل تلقائي — تحكم يدوي + تنقّل داخل التسجيل.</p>
+  <div class="row">
+    <video id="v" controls playsinline preload="metadata"></video>
+  </div>
+  <div class="row">
+    <audio id="a" controls preload="metadata"></audio>
+  </div>
+  <pre id="log"></pre>
+  <script>
+    const logEl = document.getElementById('log');
+    const lines = [];
+    function log(ok, msg) {
+      lines.push((ok ? 'PASS' : 'FAIL') + '  ' + msg);
+      logEl.innerHTML = lines.map((l) => {
+        const cls = l.startsWith('PASS') ? 'ok' : 'bad';
+        return '<span class="' + cls + '">' + l + '</span>';
+      }).join('\n');
+      document.title = (lines.every((l) => l.startsWith('PASS')) ? 'PASS' : 'FAIL') + ' playback';
+    }
+
+    // WAV صامت قصير (~0.3ث)
+    function makeWav(seconds = 0.3) {
+      const rate = 44100;
+      const samples = Math.floor(rate * seconds);
+      const dataSize = samples * 2;
+      const buf = new ArrayBuffer(44 + dataSize);
+      const v = new DataView(buf);
+      const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      w(0, 'RIFF'); v.setUint32(4, 36 + dataSize, true);
+      w(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+      v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+      v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true);
+      v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+      w(36, 'data'); v.setUint32(40, dataSize, true);
+      return new Blob([buf], { type: 'audio/wav' });
+    }
+
+    // MP4 رأس minimal — قد لا يُشغَّل في كل المتصفحات؛ نختبر خصائص العنصر + الصوت فعليًا
+    function makeMp4Stub() {
+      const b = new Uint8Array(64);
+      b[3] = 24;
+      b.set(new TextEncoder().encode('ftypisom'), 4);
+      return new Blob([b], { type: 'video/mp4' });
+    }
+
+    (async () => {
+      const video = document.getElementById('v');
+      const audio = document.getElementById('a');
+      log(!video.autoplay && !audio.autoplay, 'autoplay attribute absent (false)');
+      log(video.controls && audio.controls, 'controls enabled');
+      log(video.preload === 'metadata' && audio.preload === 'metadata', 'preload=metadata');
+
+      const aUrl = URL.createObjectURL(makeWav(0.4));
+      const vUrl = URL.createObjectURL(makeMp4Stub());
+      audio.src = aUrl;
+      video.src = vUrl;
+
+      await new Promise((resolve) => {
+        audio.addEventListener('loadedmetadata', resolve, { once: true });
+        setTimeout(resolve, 1500);
+      });
+
+      log(audio.paused === true, 'audio not autoplaying (paused=' + audio.paused + ')');
+      log(Number.isFinite(audio.duration) && audio.duration > 0.2, 'audio duration usable: ' + audio.duration);
+
+      try {
+        audio.currentTime = Math.min(0.15, Math.max(0, (audio.duration || 0.4) * 0.4));
+        log(Math.abs(audio.currentTime - 0.15) < 0.08 || audio.currentTime > 0.05, 'seek within recording → t=' + audio.currentTime);
+      } catch (e) {
+        log(false, 'seek failed: ' + e.message);
+      }
+
+      try {
+        await audio.play();
+        log(!audio.paused, 'manual play works');
+        audio.pause();
+      } catch (e) {
+        log(false, 'manual play blocked: ' + e.message);
+      }
+
+      log(video.paused === true, 'video not autoplaying');
+      // تنقّل على عنصر الفيديو حتى لو كان الملف stub
+      try {
+        video.currentTime = 0;
+        log(true, 'video currentTime assignable (seek API)');
+      } catch (e) {
+        log(false, 'video seek API: ' + e.message);
+      }
+
+      window.__PLAYBACK_RESULTS__ = lines.slice();
+    })();
+  </script>
+</body>
+</html>

@@ -10,8 +10,10 @@ import {
   listApprovedPosts,
   approvedCounts,
   imageObjectUrl,
+  bindMediaBlobLifecycle,
+  MEDIA_LOCAL_COPY_NOTE,
 } from './parents-service.js';
-import { lazyImage, postMediaLarge } from './parents-ui.js';
+import { lazyImage, postAttachments } from './parents-ui.js';
 import { isMissingSchemaError } from './file-manager.js';
 import { createEl, formatDate, logDev } from './utils.js';
 import { icon } from './icons.js';
@@ -19,6 +21,7 @@ import { icon } from './icons.js';
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 bootPublicPage({ title: 'بعيون أهالينا' }, async (ctx) => {
+  bindMediaBlobLifecycle();
   const root = ctx.content;
   ctx.canEdit = ctx.canEdit && (await isFeatureManager());
   const eventId = new URLSearchParams(location.search).get('event');
@@ -46,7 +49,8 @@ function pageHeader(ctx) {
       createEl('h1', { textContent: 'بعيون أهالينا' }),
       createEl('p', {
         textContent:
-          'مشاركات أولياء الأمور عن أنشطة المدرسة ومناسباتها. تُنشر المشاركات بعد مراجعتها واعتمادها من رائدة النشاط.',
+          'مشاركات أولياء الأمور عن أنشطة المدرسة ومناسباتها. تُنشر المشاركات بعد مراجعتها واعتمادها من رائدة النشاط. ' +
+          MEDIA_LOCAL_COPY_NOTE,
       }),
     ]),
     createEl('div', { className: 'pub-page-head__actions' }, [
@@ -168,8 +172,8 @@ function postCard(post, ev) {
   const author = post.author_name || 'ولي أمر';
   const caption = `${ev.title} — ${author}`;
   return createEl('article', { className: 'pe-post pe-post--large' }, [
-    postMediaLarge(post.images, {
-      getUrl: (img) => imageObjectUrl(img.storage_path),
+    postAttachments(post, {
+      getUrl: (item) => imageObjectUrl(item.storage_path),
       caption,
     }),
     createEl('div', { className: 'pe-post__body' }, [

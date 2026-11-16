@@ -27,13 +27,22 @@ export const STATUS_LABELS = Object.freeze({
 
 const EVENT_PUBLIC_COLS = 'id, title, description, cover_path, is_open, created_at';
 const POST_PUBLIC_COLS =
-  'id, event_id, author_name, comment, published_at, parent_post_images(id, storage_path, mime_type, sort_order)';
+  'id, event_id, author_name, comment, published_at, parent_post_images(id, storage_path, mime_type, sort_order, kind)';
 const POST_ADMIN_COLS =
-  'id, event_id, author_name, comment, status, submitted_at, reviewed_at, published_at, parent_post_images(id, storage_path, mime_type, file_size, sort_order)';
+  'id, event_id, author_name, comment, status, submitted_at, reviewed_at, published_at, parent_post_images(id, storage_path, mime_type, file_size, sort_order, kind)';
 
 function sortImages(post) {
-  const imgs = [...(post.parent_post_images || [])].sort((a, b) => a.sort_order - b.sort_order);
-  return { ...post, images: imgs };
+  const imgs = [...(post.parent_post_images || [])]
+    .map((m) => ({ ...m, kind: m.kind || 'image' }))
+    .sort((a, b) => a.sort_order - b.sort_order);
+  return {
+    ...post,
+    images: imgs,
+    media: imgs,
+    imageItems: imgs.filter((m) => m.kind === 'image'),
+    videoItem: imgs.find((m) => m.kind === 'video') || null,
+    audioItem: imgs.find((m) => m.kind === 'audio') || null,
+  };
 }
 
 function uuidV4() {
@@ -94,24 +103,29 @@ export async function approvedCounts() {
 }
 
 const urlCache = new Map();
+/** @type {Map<string, string>} blob: URLs للإبطال عند forgetImage */
+const blobUrls = new Map();
 
 /**
- * رابط صورة عامة (غلاف مناسبة أو مشاركة معتمدة) عبر Signed URL قصيرة العمر.
- * يخضع لسياسة pe_storage_public_read / parents_eyes_object_is_public — لا يكشف غير المعتمد.
- * Signed URL أنسب للعرض الكبير من تنزيل Blob كامل في الذاكرة.
+ * مرفق عام (غلاف / صورة / فيديو / صوت) عبر download يخضع لـ RLS في كل طلب.
+ * لا يُصدر Signed URL قابلة للنسخ — فإلغاء النشر يوقف الطلبات الجديدة فورًا،
+ * والروابط السابقة (blob:) تُبطَل من الذاكرة عند forgetImage / تغيير الحالة.
+ * ملاحظة: الفيديو حتى 50م.ب يُحمَّل كاملًا في المتصفح لتفعيل التنقّل مع الإبطال الفوري.
  */
-export async function imageObjectUrl(path, expiresIn = 3600) {
-  if (!path) throw new Error('مسار الصورة غير موجود');
+export async function imageObjectUrl(path) {
+  if (!path) throw new Error('مسار المرفق غير موجود');
   if (urlCache.has(path)) return urlCache.get(path);
   const p = (async () => {
-    const { data, error } = await getSupabase()
-      .storage.from(PARENTS_BUCKET)
-      .createSignedUrl(path, expiresIn);
-    if (error || !data?.signedUrl) {
-      logDev('signed url', error);
-      throw error || new Error('تعذّر تحميل الصورة');
+    const { data, error } = await getSupabase().storage.from(PARENTS_BUCKET).download(path);
+    if (error || !data) {
+      logDev('parents media download', error);
+      throw error || new Error('تعذّر تحميل المرفق');
     }
-    return data.signedUrl;
+    const prev = blobUrls.get(path);
+    if (prev) URL.revokeObjectURL(prev);
+    const url = URL.createObjectURL(data);
+    blobUrls.set(path, url);
+    return url;
   })();
   urlCache.set(path, p);
   try {
@@ -124,7 +138,35 @@ export async function imageObjectUrl(path, expiresIn = 3600) {
 
 export function forgetImage(path) {
   urlCache.delete(path);
+  const blob = blobUrls.get(path);
+  if (blob) {
+    URL.revokeObjectURL(blob);
+    blobUrls.delete(path);
+  }
 }
+
+/** إبطال كل روابط blob المعروضة (عند مغادرة الصفحة أو إغلاق العرض) */
+export function revokeAllMediaBlobs() {
+  for (const path of [...blobUrls.keys()]) forgetImage(path);
+}
+
+let leaveHooksBound = false;
+/** يربط pagehide/visibilitychange مرة واحدة لإبطال blob عند المغادرة */
+export function bindMediaBlobLifecycle() {
+  if (leaveHooksBound || typeof window === 'undefined') return;
+  leaveHooksBound = true;
+  const revoke = () => revokeAllMediaBlobs();
+  window.addEventListener('pagehide', revoke);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') revoke();
+  });
+}
+
+/**
+ * ملاحظة خصوصية للزائر: إبطال الروابط في المتصفح لا يسحب نسخًا حُفظت على الجهاز.
+ */
+export const MEDIA_LOCAL_COPY_NOTE =
+  'بعد إلغاء النشر يُوقف الوصول من المنصة فورًا وتُبطَل روابط العرض في المتصفح. إن حُفظ الملف على جهاز الزائر مسبقًا فلا يمكن سحبه عن بُعد.';
 
 // ---------------------------------------------------------------------
 // إرسال ولي الأمر (Edge Function)
@@ -134,27 +176,27 @@ const SUBMIT_MESSAGES = {
   event_closed: 'هذه المناسبة لا تستقبل مشاركات حالياً',
   too_large: 'حجم المرفقات أكبر من المسموح',
   name_required: 'يرجى كتابة اسم الطالبة أو ولية أمر الطالبة',
+  video_too_large: 'حجم الفيديو يجب ألا يتجاوز 50 ميجابايت',
+  audio_too_large: 'حجم الملف الصوتي يجب ألا يتجاوز 15 ميجابايت',
+  invalid_media: 'نوع أحد المرفقات غير مدعوم',
+  use_direct_upload: 'ارفع الفيديو أو الصوت عبر المسار المباشر ثم أكمل الإرسال',
+  missing_upload: 'لم يُستلم أحد المرفقات الكبيرة، أعد المحاولة',
 };
 
-/**
- * @param {FormData} form
- * @returns {Promise<void>} يرمي Error برسالة عربية عند الرفض
- */
-export async function submitParentPost(form) {
-  let res;
-  try {
-    res = await fetch(`${SUPABASE_URL}/functions/v1/${PARENT_SUBMIT_FUNCTION}`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-      body: form,
-    });
-  } catch (err) {
-    logDev(err);
-    throw new Error('تعذّر الاتصال بالخادم، تحقق من الإنترنت وحاول مجدداً');
-  }
+function submitUrl() {
+  return `${SUPABASE_URL}/functions/v1/${PARENT_SUBMIT_FUNCTION}`;
+}
+
+function submitHeaders(json = false) {
+  const h = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+  };
+  if (json) h['Content-Type'] = 'application/json';
+  return h;
+}
+
+async function readSubmitResponse(res) {
   let payload = null;
   try {
     payload = await res.json();
@@ -164,6 +206,120 @@ export async function submitParentPost(form) {
   if (!res.ok || !payload?.ok) {
     const code = payload?.error;
     throw new Error(SUBMIT_MESSAGES[code] || payload?.message || 'تعذّر إرسال المشاركة، حاول لاحقاً');
+  }
+  return payload;
+}
+
+/**
+ * تجهيز Signed Upload للفيديو/الصوت (رفع مباشر للتخزين، خارج ذاكرة Edge)
+ * @param {{ video?: File|null, audio?: File|null }} media
+ */
+export async function prepareParentLargeUploads({ video = null, audio = null } = {}) {
+  const body = { action: 'prepare' };
+  if (video) body.video = { size: video.size, name: video.name, type: video.type };
+  if (audio) body.audio = { size: audio.size, name: audio.name, type: audio.type };
+  let res;
+  try {
+    res = await fetch(submitUrl(), {
+      method: 'POST',
+      headers: submitHeaders(true),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    logDev(err);
+    throw new Error('تعذّر الاتصال بالخادم، تحقق من الإنترنت وحاول مجدداً');
+  }
+  return readSubmitResponse(res);
+}
+
+/**
+ * رفع ملف إلى Signed Upload URL مع تتبّع التقدّم
+ * @param {{ signedUrl: string, token: string, path: string }} upload
+ * @param {File} file
+ * @param {(pct: number) => void} [onProgress]
+ */
+export function uploadToSignedUrl(upload, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', upload.signedUrl);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    if (upload.token) xhr.setRequestHeader('x-upsert', 'false');
+    xhr.upload.onprogress = (e) => {
+      if (!onProgress || !e.lengthComputable) return;
+      onProgress(Math.max(1, Math.min(99, Math.round((e.loaded / e.total) * 100))));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new Error('تعذّر رفع المرفق الكبير، حاول مجدداً'));
+    };
+    xhr.onerror = () => reject(new Error('تعذّر الاتصال بالخادم أثناء رفع المرفق'));
+    xhr.send(file);
+  });
+}
+
+/**
+ * @param {FormData} form — صور + حقول؛ أضف video_path / audio_path / post_id بعد الرفع المباشر
+ * @param {{ onProgress?: (pct: number) => void, video?: File|null, audio?: File|null }} [opts]
+ * @returns {Promise<void>}
+ */
+export async function submitParentPost(form, opts = {}) {
+  const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : null;
+  const video = opts.video || null;
+  const audio = opts.audio || null;
+
+  try {
+    if (video || audio) {
+      if (onProgress) onProgress(2);
+      const prepared = await prepareParentLargeUploads({ video, audio });
+      form.append('post_id', prepared.post_id);
+      const uploads = prepared.uploads || [];
+      const totalLarge = uploads.length;
+      let done = 0;
+      for (const up of uploads) {
+        const file = up.kind === 'video' ? video : audio;
+        if (!file) continue;
+        await uploadToSignedUrl(up, file, (pct) => {
+          if (!onProgress) return;
+          const base = 5 + Math.round((done / Math.max(1, totalLarge)) * 70);
+          const slice = Math.round((pct / 100) * (70 / Math.max(1, totalLarge)));
+          onProgress(Math.min(75, base + slice));
+        });
+        if (up.kind === 'video') form.append('video_path', up.path);
+        if (up.kind === 'audio') form.append('audio_path', up.path);
+        done += 1;
+      }
+      if (onProgress) onProgress(78);
+    }
+
+    const payload = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', submitUrl());
+      xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
+      xhr.setRequestHeader('Authorization', `Bearer ${SUPABASE_ANON_KEY}`);
+      xhr.upload.onprogress = (e) => {
+        if (!onProgress || !e.lengthComputable) return;
+        const pct = 78 + Math.round((e.loaded / e.total) * 20);
+        onProgress(Math.min(98, pct));
+      };
+      xhr.onload = () => {
+        try {
+          resolve({ status: xhr.status, body: JSON.parse(xhr.responseText || 'null') });
+        } catch {
+          resolve({ status: xhr.status, body: null });
+        }
+      };
+      xhr.onerror = () => reject(new Error('network'));
+      xhr.send(form);
+    });
+    if (onProgress) onProgress(100);
+    if (payload.status < 200 || payload.status >= 300 || !payload.body?.ok) {
+      const code = payload.body?.error;
+      throw new Error(SUBMIT_MESSAGES[code] || payload.body?.message || 'تعذّر إرسال المشاركة، حاول لاحقاً');
+    }
+  } catch (err) {
+    if (err?.message && !/network|Failed to fetch/i.test(err.message)) throw err;
+    logDev(err);
+    throw new Error(err?.message?.includes('رفع') ? err.message : 'تعذّر الاتصال بالخادم، تحقق من الإنترنت وحاول مجدداً');
   }
 }
 

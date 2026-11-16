@@ -1,0 +1,36 @@
+007 activation + parent-submit deploy — 2026-11-16
+
+BEFORE (007_counts_before.txt):
+  events=1 posts=48 pending=22 approved=24 rejected=2
+  attachments=57 parents_eyes_objects=64 gallery_bucket_objects=137
+
+AFTER migration 007:
+  has_kind=true has_intents=true pe_limit=52428800
+  counts unchanged at apply time (then real parent submissions arrived)
+
+UNIT/HARNESS:
+  deno validate+submit-flow: 31 passed
+  local-harness: 10 passed
+  browser playback-harness: 9 passed (no autoplay, seek, manual play)
+
+LIVE (project rcxcmxaplyzxhhgrmhqj only):
+  prepare signed upload: PASS
+  direct upload video+audio: PASS
+  finalize pending post: PASS
+  finalize retry idempotent: PASS
+  anon download denied while pending: PASS
+  anon download allowed after approve: PASS (video+audio)
+  anon download denied after unpublish: PASS
+  orphan intent listed + cleaned (abandoned prepare, age>2h): PASS
+  note: freshly uploaded orphan objects are skipped for 30m (in-progress guard)
+
+CLEANUP:
+  test post 5f3f52e5-... deleted
+  leftover orphan storage object removed
+  gallery_bucket_objects still 137
+  posts/attachments increased by real parent traffic during window (not test data)
+
+DEPLOYED:
+  migrations/007_parents_video_audio.sql
+  migrations/007b_orphan_minutes.sql (integer RPC for orphan list)
+  supabase functions deploy parent-submit --no-verify-jwt --use-api

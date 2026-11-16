@@ -1,0 +1,32 @@
+[
+  {
+    "ok": true,
+    "name": "prepare signed uploads",
+    "detail": "5f3f52e5-0a04-44c2-886b-80b7fa2b286e"
+  },
+  {
+    "ok": true,
+    "name": "direct upload video",
+    "detail": "status=200"
+  },
+  {
+    "ok": true,
+    "name": "direct upload audio",
+    "detail": "status=200"
+  },
+  {
+    "ok": true,
+    "name": "finalize create pending post",
+    "detail": "{\"ok\":true}"
+  },
+  {
+    "ok": true,
+    "name": "finalize retry idempotent",
+    "detail": "{\"ok\":true}"
+  },
+  {
+    "ok": true,
+    "name": "anon download denied while pending",
+    "detail": "status=400"
+  }
+]
